@@ -1,5 +1,5 @@
 # CKA Exam Prep
-[CKA Curriculum](https://github.com/cncf/curriculum)
+* [CKA Curriculum](https://github.com/cncf/curriculum)
 
 ## Tips and tricks
 * Useful sites allowed during test
@@ -25,8 +25,8 @@
 
 ## Scheduling - 5%
 ### Use label selectors to schedule pods
-[Assinging Pods to Nodes](https://kubernetes.io/docs/concepts/configuration/assign-pod-node/)
-[Label-Selectors](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#label-selectors)
+* [Assinging Pods to Nodes](https://kubernetes.io/docs/concepts/configuration/assign-pod-node/)
+* [Label-Selectors](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#label-selectors)
   * The label selector is the core grouping primitive in Kubernetes
 
 * Using labels to filter pods
@@ -137,7 +137,7 @@ spec:
     * Note: Pod anti-affinity requires nodes to be consistently labelled, i.e. every node in the cluster must have an appropriate label matching `topologyKey`. If some or all nodes are missing the specified `topologyKey` label, it can lead to unintended behavior.
 
 ### Understand the role of Daemonsets
-[DaemonSet](https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/)
+* [DaemonSet](https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/)
 A DaemonSet ensures that all (or some) Nodes run a copy of a Pod. As nodes are added to the cluster, Pods are added to them. As nodes are removed from the cluster, those Pods are garbage collected. Deleting a DaemonSet will clean up the Pods it created.
 * Some typical uses of a DaemonSet are:
   * running a cluster storage daemon, such as `glusterd`, `ceph`, on each node
@@ -156,8 +156,8 @@ A DaemonSet ensures that all (or some) Nodes run a copy of a Pod. As nodes are a
 * Daemon pods respect taints and tolerations but [some tolerations are added to DaemonSet pods automatically](https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/#taints-and-tolerations)
 
 ### Understand how resource limits can affect Pod scheduling
-[Configure Default Memory Requests and Limits for a Namespace](https://kubernetes.io/docs/tasks/administer-cluster/manage-resources/memory-default-namespace/)
-[Kube Scheduler](https://kubernetes.io/docs/concepts/scheduling/kube-scheduler/)
+* [Configure Default Memory Requests and Limits for a Namespace](https://kubernetes.io/docs/tasks/administer-cluster/manage-resources/memory-default-namespace/)
+* [Kube Scheduler](https://kubernetes.io/docs/concepts/scheduling/kube-scheduler/)
 * For every newly created pod or other unscheduled pods, kube-scheduler selects an optimal node for them to run on. However, every container in pods has different requirements for resources and every pod also has different requirements. Therefore, existing nodes need to be filtered according to the specific scheduling requirements.
 * In a cluster, Nodes that meet the scheduling requirements for a Pod are called feasible nodes. If none of the nodes are suitable, the pod remains unscheduled until the scheduler is able to place it.
 * kube-scheduler selects a node for the pod in a 2-step operation:
@@ -183,7 +183,7 @@ A DaemonSet ensures that all (or some) Nodes run a copy of a Pod. As nodes are a
 * If quota is enabled in a namespace for compute resources like cpu and memory, users must specify requests or limits for those values; otherwise, the quota system may reject pod creation. Hint: Use the LimitRanger admission controller to force defaults for pods that make no compute resource requirements
 
 ### Understand how to run multiple schedulers and how to configure Pods to use them
-[Configure Multiple Schedulers](https://kubernetes.io/docs/tasks/administer-cluster/configure-multiple-schedulers/)
+* [Configure Multiple Schedulers](https://kubernetes.io/docs/tasks/administer-cluster/configure-multiple-schedulers/)
 
 #### Package the scheduler
 * Package your scheduler binary into a container image
@@ -207,7 +207,7 @@ spec:
 `kubectl get events`
 
 ### Manually schedule a pod without a scheduler (aka Static Pods)
-[Create Static Pods](https://kubernetes.io/docs/tasks/configure-pod-container/static-pod/)
+* [Create Static Pods](https://kubernetes.io/docs/tasks/configure-pod-container/static-pod/)
 A mirror pod gets created on the Kube API server for each static pod. This makes them visible but they cannot be controlled from there
 
 1. SSH into node
@@ -246,7 +246,7 @@ EOF
 `kubectl describe pods <pod_name>`
 
 ### Know how to configure the Kubernetes scheduler
-[Configure the Kubernetes Scheduler](https://github.com/kelseyhightower/kubernetes-the-hard-way/blob/master/docs/08-bootstrapping-kubernetes-controllers.md#configure-the-kubernetes-scheduler)
+* [Configure the Kubernetes Scheduler](https://github.com/kelseyhightower/kubernetes-the-hard-way/blob/master/docs/08-bootstrapping-kubernetes-controllers.md#configure-the-kubernetes-scheduler)
 
 1. Download and install the Kubernetes Controller Binaries
 ```
@@ -308,7 +308,7 @@ EOF
 
 ## Core Concepts - 19%
 ### Understand the Kubernetes API primitives
-[Understanding Kubernetes Objects](https://kubernetes.io/docs/concepts/overview/working-with-objects/kubernetes-objects/)
+* [Understanding Kubernetes Objects](https://kubernetes.io/docs/concepts/overview/working-with-objects/kubernetes-objects/)
 
 #### Key Points
 * A Kubernetes object is a “record of intent”–once you create the object, the Kubernetes system will constantly work to ensure that object exists. By creating an object, you’re effectively telling the Kubernetes system what you want your cluster’s workload to look like; this is your cluster’s desired state.
@@ -319,7 +319,7 @@ EOF
   * `spec` - what state you desire for the object
 * The precise format of the object `spec` is different for every Kubernetes object
 
-[Kubernetes API Overview](https://kubernetes.io/docs/reference/using-api/api-overview/)
+* [Kubernetes API Overview](https://kubernetes.io/docs/reference/using-api/api-overview/)
 #### Key Points
 * Everything in the Kubernetes platform is treated as an API object and has a corresponding entry in the API
 * Kubernetes stores its serialized state in etcd
@@ -341,7 +341,7 @@ EOF
   1. Finalization - using finalizers
   2. Removal
 
-[Kubernetes Object Management](https://kubernetes.io/docs/concepts/overview/working-with-objects/object-management/)
+* [Kubernetes Object Management](https://kubernetes.io/docs/concepts/overview/working-with-objects/object-management/)
 #### Key Points
 * Imperative commands
   * `kubectl run nginx --image=nginx`
@@ -361,7 +361,7 @@ EOF
       * `--prune` is in Alpha
 
 ### Understand the Kubernetes cluster architecture
-[Kubernetes Components](https://kubernetes.io/docs/concepts/overview/components/)
+* [Kubernetes Components](https://kubernetes.io/docs/concepts/overview/components/)
 
 #### Key Points
 * Control Plane Components
@@ -422,7 +422,7 @@ EOF
       * Otherwise they write to `.log` files in the `/var/log` directory
 
 ### Understand Services and other network primitives
-[Services](https://kubernetes.io/docs/concepts/services-networking/service/)
+* [Services](https://kubernetes.io/docs/concepts/services-networking/service/)
 
 #### Key Points
 * Each service is a microservice handling traffic, NodePort/LB, to distribute inbound requests among pods
@@ -456,8 +456,8 @@ EOF
 
 ## Networking - 11%
 ### Understand the networking configuration on the cluster nodes
-[Illustrated Guide to Kubernetes Networking](https://itnext.io/an-illustrated-guide-to-kubernetes-networking-part-1-d1ede3322727)
-[Illustrated Guide to Kube Networking - Overlay Networks](https://itnext.io/an-illustrated-guide-to-kubernetes-networking-part-2-13fdc6c4e24c)
+* [Illustrated Guide to Kubernetes Networking](https://itnext.io/an-illustrated-guide-to-kubernetes-networking-part-1-d1ede3322727)
+* [Illustrated Guide to Kube Networking - Overlay Networks](https://itnext.io/an-illustrated-guide-to-kubernetes-networking-part-2-13fdc6c4e24c)
 
 #### Key Points
 * Intra-node communication
@@ -477,8 +477,8 @@ EOF
     * Same as previous workflow but when local node's bridge needs to send it to another CIDR block, it has a route table entry configured to send it to the overlay network's interface
 
 ### Understand Pod networking concepts
-[Cluster Networking](https://kubernetes.io/docs/concepts/cluster-administration/networking/)
-[Networking Design Proposal](https://github.com/kubernetes/community/blob/master/contributors/design-proposals/network/networking.md)
+* [Cluster Networking](https://kubernetes.io/docs/concepts/cluster-administration/networking/)
+* [Networking Design Proposal](https://github.com/kubernetes/community/blob/master/contributors/design-proposals/network/networking.md)
 
 #### Key Points
 * Pod-to-Pod communications
@@ -498,7 +498,7 @@ EOF
   * To use IPv4 and IPv6, when creating a service, you must create and endpoint for each address family separately
 
 ### Understand Service networking
-[Service Networking](https://kubernetes.io/docs/concepts/services-networking/service/#virtual-ips-and-service-proxies)
+* [Service Networking](https://kubernetes.io/docs/concepts/services-networking/service/#virtual-ips-and-service-proxies)
 
 #### Key Points
 * Every node in a Kube cluster runs a `kube-proxy`, which is responsible for implementing a form of virtual IP for `Services` of types other than `ExternalName`
@@ -525,8 +525,8 @@ EOF
       * When kube-proxy starts in IPVS mode, it verifies whether IPVS kernel modules are available and falls back to iptables mode if not
 
 ### Deploy and Configure a network load balancer
-[Create an External Load Balancer](https://kubernetes.io/docs/tasks/access-application-cluster/create-external-load-balancer/)
-[Service Config](https://kubernetes.io/docs/concepts/services-networking/service/#loadbalancer)
+* [Create an External Load Balancer](https://kubernetes.io/docs/tasks/access-application-cluster/create-external-load-balancer/)
+* [Service Config](https://kubernetes.io/docs/concepts/services-networking/service/#loadbalancer)
 
 #### Key Points
 * This provides an externally-accessible IP address that sends traffic to the correct port on your cluster nodes provided your cluster runs in a supported environment and is configured with the correct cloud load balancer provider package
@@ -539,7 +539,7 @@ EOF
 * Switching traffic to a different `port` would maintain a client connection, while changing versions of the app
 
 ### Know how to use Ingress rules
-[Ingress](https://kubernetes.io/docs/concepts/services-networking/ingress/)
+* [Ingress](https://kubernetes.io/docs/concepts/services-networking/ingress/)
 
 #### Key Points
 * You can use Services to allow ingress traffic but it becomes hard to manage the more you have
@@ -621,7 +621,7 @@ spec:
 ```
 
 ### Know how to configure and use the cluster DNS
-[DNS for Services and Pods](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/)
+* [DNS for Services and Pods](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/)
 
 #### Key Points
 * Kubernetes DNS schedules a DNS Pod and Service on the cluster, and configures the kubelets to tell individual containers to use the DNS Service’s IP to resolve DNS names.
@@ -674,8 +674,8 @@ spec:
 ```
 
 ### Understand CNI
-[Network Plugins](https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/network-plugins/)
-[CNI Github](https://github.com/containernetworking/cni)
+* [Network Plugins](https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/network-plugins/)
+* [CNI Github](https://github.com/containernetworking/cni)
 
 #### Key Points
 * CNI plugins: adhere to the appc/CNI specification, designed for interoperability
@@ -700,10 +700,10 @@ spec:
     * This eliminates the need for a network overlay interface
 
 ## Installation, Configuration, and Validation - 12%
-[Kubernetes the Hard Way](https://github.com/kelseyhightower/kubernetes-the-hard-way)
+* [Kubernetes the Hard Way](https://github.com/kelseyhightower/kubernetes-the-hard-way)
 
 ### Design a Kubernetes Cluster
-[Creating a Cluster](https://kubernetes.io/docs/tutorials/kubernetes-basics/create-cluster/)
+* [Creating a Cluster](https://kubernetes.io/docs/tutorials/kubernetes-basics/create-cluster/)
 
 #### Key Points
 * Kubernetes coordinates a highly available cluster of computers that are connected to work as a single unit
@@ -714,8 +714,9 @@ spec:
   * Nodes communicate with the master using the kubernetes API called by the kubelet service
 
 ### Install Kubernetes masters and nodes
-[Kubeadm](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/)
-[Create cluster using kubeadm](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/create-cluster-kubeadm/)
+* [Kubeadm](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/)
+* [Create cluster using kubeadm](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/create-cluster-kubeadm/)
+
 #### Key Points
 * Prereqs
   * Linux VM
@@ -766,9 +767,284 @@ kubeadm token create --print-join-command --certificate-key $CERT_KEY
   * `kubeadm reset`
 
 ### Configure secure cluster communication
-[Provisioning a CA and Generating TLS Certs](https://github.com/kelseyhightower/kubernetes-the-hard-way/blob/master/docs/04-certificate-authority.md)
-[Manage TLS certs in a cluster](https://kubernetes.io/docs/tasks/tls/managing-tls-in-a-cluster/)
-[Cert Management with kubeadm](https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/)
+* [Provisioning a CA and Generating TLS Certs](https://github.com/kelseyhightower/kubernetes-the-hard-way/blob/master/docs/04-certificate-authority.md) - Good info on provisioning a CA in your cluster
+* [Manage TLS certs in a cluster](https://kubernetes.io/docs/tasks/tls/managing-tls-in-a-cluster/)
+* [Cert Management with kubeadm](https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/)
 
 #### Key Points
-* 
+* Note: Certificates created using the certificates.k8s.io API are signed by a dedicated CA. It is possible to configure your cluster to use the cluster root CA for this purpose, but you should never rely on this. Do not assume that these certificates will validate against the cluster root CA.
+* Prereq
+  * This tutorial assumes that a signer is setup to serve the certificates API. The Kubernetes controller manager provides a default implementation of a signer. To enable it, pass the `--cluster-signing-cert-file` and `--cluster-signing-key-file` parameters to the controller manager with paths to your Certificate Authority’s keypair.
+  * You can configure an external signer such as [cert-manager](https://docs.cert-manager.io/en/latest/tasks/issuers/setup-ca.html), or you can use the built-in signer
+* Trusting TLS in a cluster
+  * You need to add the CA certificate bundle to the list of CA certificates that the TLS client or server trusts
+  * You can distribute the CA certificate as a ConfigMap that your pods have access to use
+* Download and isntall CFSSL (Cloudflare's PKI and TLS toolkit)
+  * https://pkg.cfssl.org/R1.2/cfssl-bundle_linux-amd64
+1. Create a Certificate Signing Request (CSR) and private key
+  * `cfssl genkey` will generate a private key and a CSR
+  * `cfssljson -bare` will take the output from `cfssl` and split it out into separate key, cert, and CSR files
+  * Generate a private key and CSR by running the following command
+```
+cat <<EOF | cfssl genkey - | cfssljson -bare server
+{
+  "hosts": [
+    "my-svc.my-namespace.svc.cluster.local",
+    "my-pod.my-namespace.pod.cluster.local",
+    "192.0.2.24",
+    "10.0.34.2"
+  ],
+  "CN": "my-pod.my-namespace.pod.cluster.local",
+  "key": {
+    "algo": "ecdsa",
+    "size": 256
+  }
+}
+EOF
+```
+  * Where `192.0.2.24` is the service’s cluster IP, `my-svc.my-namespace.svc.cluster.local` is the service’s DNS name, `10.0.34.2` is the pod’s IP and `my-pod.my-namespace.pod.cluster.local` is the pod’s DNS name.
+    * FOLLOWUP - How to find these DNS names
+  * This command generates two files; it generates `server.csr` containing the PEM encoded pkcs#10 certification request, and `server-key.pem` containing the PEM encoded key to the certificate that is still to be created
+2. Create a CSR object to send to the Kube API
+  * Generate a CSR yaml blob and send it to the apiserver by running:
+```
+cat <<EOF | kubectl apply -f -
+apiVersion: certificates.k8s.io/v1beta1
+kind: CertificateSigningRequest
+metadata:
+  name: my-svc.my-namespace
+spec:
+  request: $(cat server.csr | base64 | tr -d '\n')
+  usages:
+  - digital signature
+  - key encipherment
+  - server auth
+EOF
+```
+  * Notice that the `server.csr` file created in step 1 is base64 encoded and stashed in the `.spec.request` field. We are also requesting a certificate with the “digital signature”, “key encipherment”, and “server auth” key usages. We support all key usages and extended key usages listed [here](https://godoc.org/k8s.io/api/certificates/v1beta1#KeyUsage) so you can request client certificates and other certificates using this same API.
+  * The CSR should now be visible from the API in a Pending state. You can see it by running: `kubectl describe csr my-svc.my-namespace`
+* Get the CSR approved
+  * Approving the certificate signing request is either done by an automated approval process or on a one off basis by a cluster administrator
+3. Approving CSRs
+  * A Kubernetes administrator (with appropriate permissions) can manually approve (or deny) Certificate Signing Requests by using the `kubectl certificate approve <CSR_NAME>` and `kubectl certificate deny <CSR_NAME>` commands. However if you intend to make heavy usage of this API, you might consider writing an automated certificates controller.
+4. Download the cert and use it
+  * Once the CSR is signed and approved you should see the following
+```
+kubectl get csr
+
+NAME                  AGE       REQUESTOR               CONDITION
+my-svc.my-namespace   10m       yourname@example.com    Approved,Issued
+```
+  * You can download the issued certificate and save it to a server.crt file by running the following
+```
+kubectl get csr my-svc.my-namespace -o jsonpath='{.status.certificate}' \
+    | base64 --decode > server.crt
+```
+  * Now you can use `server.crt` and `server-key.pem` as the keypair to start your HTTPS server
+
+### Configure a Highly-Available Kubernetes cluster
+* [HA Cluster using kubeadm](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/high-availability/)
+
+#### Key Points
+* Minimum of three masters
+* First steps
+  1. Create a kube-apiserver load balancer with a name that resolves to DNS
+    * Use a TCP forwarding LB to pass traffic to masters
+    * HAProxy is a good option
+    * Make sure the address of the LB always matches the address of kubeadm's `ControlPlaneEndpoint` flag
+  2. Add the first control plane nodes to the load balancer and test the connection
+    * `nc -v LOAD_BALANCER_IP PORT`
+    * Connection refused error is expected since apiserver isn't running yet
+  3. Add remaining control plane nodes to LB target group
+* Stacked control plane and etcd nodes
+  1. Initialize the control plane
+    * `sudo kubeadm init --control-plane-endpoint "LOAD_BALANCER_DNS:LOAD_BALANCER_PORT" --upload-certs`
+```
+# Create a certificate key for use in join command
+CERT_KEY=$(kubeadm alpha certs certificate-key)
+sudo kubeadm init --control-plane-endpoint "$LOAD_BALANCER_DNS:$LOAD_BALANCER_PORT" --upload-certs \
+--pod-network-cidr=$POD_CIDR --certificate-key $CERT_KEY
+```
+    * If the additional master nodes won't be added within 2 hours of initializing the control plane
+```
+CERT_KEY=$(kubeadm alpha certs certificate-key)
+sudo kubeadm init phase upload-certs --upload-certs --certificate-key $CERT_KEY
+kubeadm token create --print-join-command --certificate-key $CERT_KEY >> /etc/kubeadm_master_join_cmd.sh
+```
+    * Install your network plugin of choice
+
+### Know where to get the Kubernetes release binaries
+* [Getting Started Release Notes](https://kubernetes.io/docs/setup/release/notes/)
+* [Provision the Kube Control Plane](https://github.com/kelseyhightower/kubernetes-the-hard-way/blob/master/docs/08-bootstrapping-kubernetes-controllers.md#provision-the-kubernetes-control-plane)
+
+#### Key Points
+* Download the server binaries
+```
+wget -q --show-progress --https-only --timestamping \
+  "https://dl.k8s.io/v1.17.0/kubernetes-server-linux-amd64.tar.gz"
+```
+* Unpack them
+`tar -xf kubernetes-server-linux-amd64.tar.gz`
+* Install the Kube binaries
+```
+{
+  chmod +x kube-apiserver kube-controller-manager kube-scheduler kubectl
+  sudo mv kube-apiserver kube-controller-manager kube-scheduler kubectl /usr/local/bin/
+}
+```
+
+### Provision underlying infrastructure to deploy a Kubernetes cluster
+* [Provisioning Compute Resources](https://github.com/kelseyhightower/kubernetes-the-hard-way/blob/master/docs/03-compute-resources.md)
+
+#### Key Points
+* Networking
+  * Create dedicated Virtual network with at least one subnet
+  * Configure firewall rules to allow all traffic between hosts
+  * Allocate public IP address for external load balancer
+* Compute instances
+  * Deploy Ubuntu 18.04 server, three instances for master nodes and three for workers
+* Configure SSH access
+
+### Choose a network solution
+* [How to implement the Kube networking model](https://kubernetes.io/docs/concepts/cluster-administration/networking/#how-to-implement-the-kubernetes-networking-model)
+
+#### Key Points
+* Lots of options here
+  * AWS VPC CNI
+  * Azure CNI
+  * GCE
+  * Flannel
+  * Calico
+
+### Choose your Kubernetes infrastructure configuration
+* [Prod Environment Options](https://kubernetes.io/docs/setup/#production-environment)
+
+### Run end-to-end tests on your cluster
+* [Smoke Test](https://github.com/kelseyhightower/kubernetes-the-hard-way/blob/master/docs/13-smoke-test.md)
+* [Cluster End-To-End Tests](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-testing/e2e-tests.md)
+
+#### Key Points
+* Basic
+  * `kubectl cluster-info`
+  * `kubectl get nodes`
+  * `kubectl get componentstatuses`
+  * `kubectl get all --all-namespaces`
+  * `kubectl get all --all-namespaces -o wide --show-labels`
+* Data Encryption
+  * Create a generic secret
+    * `kubectl create secret generic <secret_name> --from-literal="mykey=mydata"`
+* Deployments
+  * `kubectl create deployment nginx --image=nginx`
+  * `kubectl get pods -l app=nginx`
+  * Port Forwarding
+    * Get full name of pod
+      * `POD_NAME=$(kubectl get po -l app=nginx -o jsonpath="{.items[0].metadata.name}")`
+    * Forward port 8080 on local machine to 80 of nginx pod
+      * `kubectl port-forward $POD_NAME 8080:80`
+    * Test connectivity
+      * `curl --head http://127.0.0.1:8080`
+  * Logs
+    * `kubectl logs $POD_NAME`
+  * Exec
+    * `kubectl exec -it $POD_NAME -- nginx -v`
+* Services
+  * Expose `nginx` deployment using a NodePort
+    * `kubectl expose deployment nginx --port=80 --type=NodePort`
+  * Retrieve node port assigned to service
+    * `NODE_PORT=$(kubectl get svc nginx -o jsonpath="{range .spec.ports[0]}{.nodePart}")`
+
+### Run Node end-to-end tests
+* [Node End-to-End tests](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-node/e2e-node-tests.md)
+
+### Install and use kubeadm to install, configure, and manage Kubernetes clusters
+* [Installing Kubeadm](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/)
+* [Installing a single control-plane cluster](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/create-cluster-kubeadm/)
+* [Certificate management with Kubeadm](https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/)
+* [Upgrading a kubeadm cluster](https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-upgrade/)
+
+#### Key Points
+* Installing kubeadm
+```
+KUBE_VERSION=1.17.2-00
+curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
+echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee -a /etc/apt/sources.list.d/kubernetes.list
+sudo apt-get update
+sudo apt-get install -y kubelet=$KUBE_VERSION kubeadm=$KUBE_VERSION kubectl=$KUBE_VERSION
+```
+* Use kubeadm to install cluster
+```
+kubeadm init --apiserver-advertise-address=$IP_ADDR --apiserver-cert-extra-sans=$IP_ADDR,$HOST_NAME \
+  --node-name $HOST_NAME --pod-network-cidr=$POD_CIDR --control-plane-endpoint $HOST_NAME:6443
+```
+* Tear down a cluster
+```
+kubectl drain <node name> --delete-local-data --force --ignore-daemonsets
+kubectl delete node <node name>
+kubeadm reset # on node
+```
+* Upgrade cluster
+  * The upgrade workflow at high level is the following:
+    1. Upgrade the primary control plane node
+    2. Upgrade additional control plane nodes
+    3. Upgrade worker nodes
+```
+kubectl drain <cp-node-name> --ignore-daemonsets  # drain control-plane node
+sudo kubeadm upgrade plan   # run upgrade check
+sudo kubeadm upgrade apply v1.17.x  # replace x with patch version
+# manually upgrade CNI provider
+kubectl uncordon <cp-node-name>   # uncordon the control-plane node
+```
+
+## Security - 12%
+* [Securing a cluster](https://kubernetes.io/docs/tasks/administer-cluster/securing-a-cluster/)
+
+### Know how to configure authentication and authorization
+* [Controlling access to the Kube API](https://kubernetes.io/docs/reference/access-authn-authz/controlling-access/)
+* [Authentication](https://kubernetes.io/docs/reference/access-authn-authz/authentication/)
+* [Authorization - RBAC](https://kubernetes.io/docs/reference/access-authn-authz/rbac/)
+* [Using Admission Controllers](https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers/)
+
+#### Key Points
+* Accessing the API - three steps
+  * Authenticate
+  * Authorize - RBAC
+  * Admission Control
+* Once a request reaches the API server securely, it will first go through the authentication module
+  * If authentication fails, it gets rejected, if okay it passes along to authorization module
+  * Authorization checks against existing policies to determine if user has permissions to perform action, then passes to admission control
+  * Admission control will check actual content of the objects being created and validate them before admitting the request
+* Authentication
+  * Users in Kube
+    * Service accounts managed by Kube
+      * These accounts use JWT tokens
+      * They are tied to a set of credentials stored as `Secrets`
+    * Normal users managed externally
+  * Authentication is done with certs, bearer tokens, an auth proxy, or HTTP basic auth with username and password
+  * When multiple methods are enabled, the first module to successfully authenticate a request is used
+  * Type of authentication used is defined on kube-apiserver startup with the following flags
+    * --client-ca-file=SOMEFILE   # x509 Client Certs - created using openssl
+    * --token-auth-file=SOMEFILE   # Static Token File for bearer tokens
+    * --basic-auth-file=SOMEFILE    # Static Password file
+    * --oidc-issuer-url   # OpenID Connect Tokens via OAuth2 like AzureAD, Salesforce, and Google
+    * --authorization-webhook-config-file
+  * `401` error response if request cannot be authenticated
+* Authorization
+  * Three main methods + two global options
+    * Role-based access control (RBAC)
+      * RBAC is a method of regulating access based on the roles of a user
+    * Attribute-based access control (ABAC)
+      * Policies are defined in JSON
+    * Webhook
+    * AlwaysAllow
+    * AlwaysDeny
+  * RBAC
+    * To enable RBAC, start the apiserver with `--authorization-mode=RBAC`
+      * kubeadm uses this authorization method by default
+    * All resources are objects and belong to API groups
+    * Resources operations are based on CRUD (Create, Read, Update, Delete)
+    * Rules are operations which can act on API groups
+    * Permissions are purely additive, there are no "deny" rules
+    * Roles
+      * Are a group of Rules which are scoped to a namespace
+    * ClusterRoles apply to the whole cluster
+    
