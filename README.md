@@ -997,6 +997,7 @@ kubectl uncordon <cp-node-name>   # uncordon the control-plane node
 
 ## Security - 12%
 * [Securing a cluster](https://kubernetes.io/docs/tasks/administer-cluster/securing-a-cluster/)
+* [Tuning Docker with Security Enhancements](https://opensource.com/business/15/3/docker-security-tuning)
 
 ### Know how to configure authentication and authorization
 * [Controlling access to the Kube API](https://kubernetes.io/docs/reference/access-authn-authz/controlling-access/)
@@ -1016,20 +1017,39 @@ kubectl uncordon <cp-node-name>   # uncordon the control-plane node
 * Authentication
   * Users in Kube
     * Service accounts managed by Kube
-      * These accounts use JWT tokens
-      * They are tied to a set of credentials stored as `Secrets`
+      * These accounts use JSON Web Token (JWT) tokens
+      * They are tied to a set of credentials stored as `Secrets`, which are mounted into pods
+      * Creating a service account with automatically create the associated secret
+      `kubectl create serviceaccount <name>`
     * Normal users managed externally
-  * Authentication is done with certs, bearer tokens, an auth proxy, or HTTP basic auth with username and password
+    * Anonymous
+  * Authentication is done with 
+    * certificates
+    * bearer tokens
+      * currently, tokens last indefintely and cannot be changed without restarting the API server
+      * token file is a csv file with a min of 3 columns: 
+        * token
+        * username
+        * user uid
+        * optional group names  # "group1,group2,group3"
+    * an authentication proxy
+    * HTTP basic auth with username and password
+      * basic auth file is a csv file with a minimum of 3 columns (same as token file)
   * When multiple methods are enabled, the first module to successfully authenticate a request is used
   * Type of authentication used is defined on kube-apiserver startup with the following flags
     * --client-ca-file=SOMEFILE   # x509 Client Certs - created using openssl
     * --token-auth-file=SOMEFILE   # Static Token File for bearer tokens
     * --basic-auth-file=SOMEFILE    # Static Password file
-    * --oidc-issuer-url   # OpenID Connect Tokens via OAuth2 like AzureAD, Salesforce, and Google
-    * --authorization-webhook-config-file
-  * `401` error response if request cannot be authenticated
+    * --oidc-issuer-urls=SOMEURL   # OpenID Connect Tokens via OAuth2 like AzureAD, Salesforce, and Google
+    * --authorization-webhook-config-file=SOMEFILE
+  * `401` HTTP error response if request cannot be authenticated
 * Authorization
-  * Three main methods + two global options
+  * An authorization request must include
+    * The username of the requestor
+    * The requested action
+    * The object affected by the action
+  * `403` HTTP error if the request is denied
+  * Three main methods to authorize + two global options
     * Role-based access control (RBAC)
       * RBAC is a method of regulating access based on the roles of a user
     * Attribute-based access control (ABAC)
@@ -1046,5 +1066,380 @@ kubectl uncordon <cp-node-name>   # uncordon the control-plane node
     * Permissions are purely additive, there are no "deny" rules
     * Roles
       * Are a group of Rules which are scoped to a namespace
-    * ClusterRoles apply to the whole cluster
-    
+    * `ClusterRole` applies to the whole cluster
+    * `RoleBinding` may also reference a `ClusterRole` and will give namespace permissions to that role
+    * Cannot modify `Role` or `ClusterRole` a binding onject refers to
+      * Must delete existing binding first then recreate
+  * `kubectl auth reconcile` creates or updates a manifest file containing RBAC objects and handles deleting and recreating binding objects if required to change the role the refer to
+  * Aggregated ClusterRoles
+    * `ClusterRole` can be created by combining other ClusterRoles using an `aggregationRule`
+    * The permissions of aggregated ClusterRoles are controller-managed and filled in by joining rules of any ClusterRole that matches the provided label selector
+* Setting up authentication and authorization
+  * Determine and create namespace
+  * Create certificate credential for user
+```
+# Authentication
+## Create user with password on node
+sudo useradd -s /bin/bash devJohn
+sudo passwd devJohn
+
+## generate private key and CSR
+openssl genrsa -out devJohn.key 2048
+openssl req -new -key devJohn.key -out devJohn.csr \
+  -subj "/CN=devJohn/O=development/O=app2"
+  # Common name of the subject is used as the user name for the request
+  # Organization fields indicate a user's group memberships; can include multple group memberships
+
+## generate self-signed cert using X509 and cluster CA keys
+sudo openssl x509 -req -in devJohn.csr \
+  -CA /etc/kubernetes/pki/ca.crt \    # cluster certs location on nodes
+  -CAKey /etc/kubernetes/pki/ca.key \
+  -CAcreateserial \
+  -out devJohn.crt -days 90
+
+## Update config file with new key and cert
+kubectl config set-credentials devJohn \
+  --client-certificate=/pathToCert/devJohn.crt \
+  --client-key=/pathToKey/devJohn.key
+
+## Create context to allow access for user to a specific cluster and namespace
+kubectl config set-context devJohn-context \
+  --cluster=kubernetes \
+  --namespace=dev \
+  --user=devJohn
+
+# Authorization
+## Associate RBAC rights to NS and role
+kubectl create role developer --verb=get,watch,list,create,update,patch,delete \
+  --resource=deployments,replicasets,pods 
+kubectl create clusterrole pod-reader --verb=get,list,watch --resource=pods
+
+### OR
+cat <<EOF > role-dev.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: developer
+  namespace: dev
+rules:
+- apiGroups: ["", "extensions", "apps"] # "" indicates the core API group
+  resources: ["deployments", "replicasets", "pods"]
+  verbs: ["get", "watch", "list", "create", "update", "patch", "delete"] 
+# use [*] for all verbs/resources/apiGroups
+EOF
+kubectl apply -f role-dev.yaml
+
+## Create RoleBinding to associate role w/ user
+kubectl create rolebinding dev-role-binding --role=developer --user=devJohn --namespace=dev
+kubectl create clusterrolebinding root-cluster-admin-binding --clusterrole=cluster-admin --user=root
+
+### OR
+cat <<EOF > rolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: dev-role-binding
+  namespace: dev
+subjects:
+- kind: User
+  name: devJohn # Name is case sensitive
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role # this must be Role or ClusterRole
+  name: developer # this must match the name of the Role or ClusterRole you wish to bind to
+  apiGroup: rbac.authorization.k8s.io
+EOF
+kubectl apply -f rolebinding.yaml
+```
+* Admission Controller
+  * An admission controller is a piece of code that intercepts requests to the Kubernetes API server before persistence of the object, but after the request is authenticated and authorized
+  * Admission controllers can be "Validating", "mutating", or both
+    * Mutating controllers may modify objects they admit
+    * Validating controllers may not modify objects
+  * Two phases
+    * First phase, mutating admission controllers are run
+    * Second phase, validating ACs are run
+  * A request can be rejected in either phase
+  * Enable them by adding `enable-admission-plugins` flag that takes a comma-delimited list of AC plugins to invoke prior to modifying objects in the cluster
+    * `kube-apiserver --enable-admission-plugins=NamespaceLifecycle,LimitRanger ...`
+  * Disable ACs
+    * `kube-apiserver --disable-admission-plugins=PodNodeSelector,AlwaysDeny ...`
+  * Validate which plugins are enabled
+    * From Control-Plane node `kube-apiserver -h | grep enable-admission-plugins`
+
+### Understand Kubernetes Security primitives
+* [Pod Security Policies](https://kubernetes.io/docs/concepts/policy/pod-security-policy/)
+* [PSP-RBAC Examples on Kubernetes Github](https://github.com/kubernetes/examples/blob/master/staging/podsecuritypolicy/rbac/README.md)
+
+#### Key Points
+* PSPs enable fine-grained authorization of pod creation and updates
+* It is a cluster-level resource that controls security sensitive aspects of the pod spec that govern what a pod can do, can access, the user they can run as, etc
+* Allow admins to control the following, plus many others
+  * Running as privileged containers - `privileged`
+  * Usage of host namespaces - `hostPID`, `hostIPC`
+  * User and group IDs of the container - `runAsUser`, `runAsGroup`, `supplementalGroups`
+  * Allocating an FSGroup that owns the pod's volumes - `fsGroup`
+  * Linux capabilities - `defaultAddCapabilities`, `requiredDropCapabilities`, `allowedCapabilities`
+  * SELinux context of the container - `seLinux`
+* With RBAC and PSP, you can finely tunen what users are allowed to run and what capabilities and low level privileges their containers will have
+* PSP control is implemented as an optional (but recommended) admission controller
+* Enabled in the admission controller without authorizing any policies will prevent any pods from being created in the cluster
+* In order to use a PSP resource, the requesting user or target pod's service account must be authorized to use the policy by allowing the `use` verb on the policy
+  * preferred method is to grant access to the pod's service account
+```
+# First, a Role or ClusterRole needs to grant access to use the desired policies. The rules to grant access look like this:
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: <role name>
+rules:
+- apiGroups: ['policy']
+  resources: ['podsecuritypolicies']
+  verbs:     ['use']
+  resourceNames:
+  - <list of policies to authorize>
+
+# Then the (Cluster)Role is bound to the authorized user(s):
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: <binding name>
+roleRef:
+  kind: ClusterRole
+  name: <role name>
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+# Authorize specific service accounts:
+- kind: ServiceAccount
+  name: <authorized service account name>
+  namespace: <authorized pod namespace>
+# Authorize specific users (not recommended):
+- kind: User
+  apiGroup: rbac.authorization.k8s.io
+  name: <authorized user name>
+```
+
+### Know how to configure network policies
+* [Network Policies](https://kubernetes.io/docs/concepts/services-networking/network-policies/)
+* [Declare network policies](https://kubernetes.io/docs/tasks/administer-cluster/declare-network-policy/)
+
+#### Key Points
+* A network policy is a spec of how groups of pods are allowed to communicate with each other and other network endpoints
+* `NetworkPolicy` resources use labels to select pods and define rules which specify what traffic is allowed
+* Some network plugins require annotating namespaces
+* The use of an empty ingress or egress rule denies all type of traffic for included pods
+* Use granular policy files with specific case per file
+```
+# Create Nginx deployment and expose it via a service
+kubectl create deploy nginx --image=nginx
+kubectl expose deploy nginx --port=80
+
+# Test service by accessing it from another pod
+kubectl run busybox --image=busybox --rm -ti --restart=Never -- /bin/sh
+wget --spider --timemout=1 nginx
+
+# Limit access to nginx service
+cat <<EOF > nginx-policy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: access-nginx
+spec:
+  podSelector:
+    matchLabels:
+      app: nginx
+  ingress:
+  - from:
+    - ipBlock:
+        cidr: 172.16.0.0/16
+        except:
+        - 172.16.1.0/24
+    - podSelector:
+        matchLabels:
+          access: "true"  # only pods with this label can access nginx
+EOF
+kubectl apply -f nginx-policy.yaml
+
+# Test access after policy is applied
+kubectl run busybox --image=busybox --rm -ti --restart=Never -- /bin/sh
+wget --spider --timemout=1 nginx
+
+# Define access label and test again
+kubectl run busybox --image=busybox --rm -ti --restart=Never --labels="access=true" -- /bin/sh
+wget --spider --timemout=1 nginx
+```
+
+### Create and manage TLS certificates for cluster components
+* See the "Configure secure cluster communication" section in Installation, Configuration, and Validation
+* [Manage TLS Certificates in a cluster](https://kubernetes.io/docs/tasks/tls/managing-tls-in-a-cluster/)
+* Very likely to show up on test since this is an item under several sections
+
+#### Key Points
+* Download and isntall CFSSL (Cloudflare's PKI and TLS toolkit)
+  * https://pkg.cfssl.org/R1.2/cfssl-bundle_linux-amd64
+1. Create a Certificate Signing Request (CSR) and private key
+  * `cfssl genkey` will generate a private key and a CSR
+  * `cfssljson -bare` will take the output from `cfssl` and split it out into separate key, cert, and CSR files
+  * Generate a private key and CSR by running the following command
+```
+cat <<EOF | cfssl genkey - | cfssljson -bare server
+{
+  "hosts": [
+    "my-svc.my-namespace.svc.cluster.local",
+    "my-pod.my-namespace.pod.cluster.local",
+    "192.0.2.24",
+    "10.0.34.2"
+  ],
+  "CN": "my-pod.my-namespace.pod.cluster.local",
+  "key": {
+    "algo": "ecdsa",
+    "size": 256
+  }
+}
+EOF
+```
+  * Where `192.0.2.24` is the service’s cluster IP, `my-svc.my-namespace.svc.cluster.local` is the service’s DNS name, `10.0.34.2` is the pod’s IP and `my-pod.my-namespace.pod.cluster.local` is the pod’s DNS name.
+    * FOLLOWUP - How to find these DNS names
+  * This command generates two files; it generates `server.csr` containing the PEM encoded pkcs#10 certification request, and `server-key.pem` containing the PEM encoded key to the certificate that is still to be created
+2. Create a CSR object to send to the Kube API
+  * Generate a CSR yaml blob and send it to the apiserver by running:
+```
+cat <<EOF | kubectl apply -f -
+apiVersion: certificates.k8s.io/v1beta1
+kind: CertificateSigningRequest
+metadata:
+  name: my-svc.my-namespace
+spec:
+  request: $(cat server.csr | base64 | tr -d '\n')
+  usages:
+  - digital signature
+  - key encipherment
+  - server auth
+EOF
+```
+  * Notice that the `server.csr` file created in step 1 is base64 encoded and stashed in the `.spec.request` field. We are also requesting a certificate with the “digital signature”, “key encipherment”, and “server auth” key usages. We support all key usages and extended key usages listed [here](https://godoc.org/k8s.io/api/certificates/v1beta1#KeyUsage) so you can request client certificates and other certificates using this same API.
+  * The CSR should now be visible from the API in a Pending state. You can see it by running: `kubectl describe csr my-svc.my-namespace`
+* Get the CSR approved
+  * Approving the certificate signing request is either done by an automated approval process or on a one off basis by a cluster administrator
+3. Approving CSRs
+  * A Kubernetes administrator (with appropriate permissions) can manually approve (or deny) Certificate Signing Requests by using the `kubectl certificate approve <CSR_NAME>` and `kubectl certificate deny <CSR_NAME>` commands. However if you intend to make heavy usage of this API, you might consider writing an automated certificates controller.
+4. Download the cert and use it
+  * Once the CSR is signed and approved you should see the following
+```
+kubectl get csr
+
+NAME                  AGE       REQUESTOR               CONDITION
+my-svc.my-namespace   10m       yourname@example.com    Approved,Issued
+```
+  * You can download the issued certificate and save it to a server.crt file by running the following
+```
+kubectl get csr my-svc.my-namespace -o jsonpath='{.status.certificate}' \
+    | base64 --decode > server.crt
+```
+  * Now you can use `server.crt` and `server-key.pem` as the keypair to start your HTTPS server
+
+### Work with images securely
+* [Security Best Practices for Kubernetes Deployments](https://kubernetes.io/blog/2016/08/security-best-practices-kubernetes-deployment/)
+
+#### Key Points
+* Having running containers with vulnerabilies opens your environment to the risk of attack
+* Many of these attacks can be mitigated by making sure that there are no software components that have known vulnerabilities
+* Good practices for images
+  * Implement continuous security vulnerability scanning
+    * Containers might include outdated packages with known CVEs. This must be a continuous process as new vulnerabilies are published every day
+  * Regularly apply security updates to your environment
+    * Always update the source image and redeploy containers after vulnerabilities are found
+    * Rolling updates are easy with Kube, take advantage of it
+* Ensure that only authorized images are used in your environment
+  * Downloading and running images from unknown sources is dangerous
+  * Use **private registries** to store your approved images
+  * Build CI pipeline that integrates security assessment as part of build process
+  * Once image is build, scan it for security vulnerabilities
+* Limit Direct access to Kube Nodes
+* Create Admin boundaries between resources
+  * Limit user permissions to reduce the impact of mistakes or malicious activities
+  * A Kube namespace allows you to partition created resources logically and assign permissions by NS
+* Define Resource Quota and Limit Ranges
+  * This avoids noisy neighbor scenarios
+* Implement Network Segmentation
+  * Reduces risk of a compromised application accessing what it isn't allowed to access
+* Apply Security Context to pods and containers
+* Log everything
+
+### Define security contexts
+* [Configure a Security Context for a Pod or Container](https://kubernetes.io/docs/tasks/configure-pod-container/security-context/)
+* [Security Context Design Doc](https://github.com/kubernetes/community/blob/master/contributors/design-proposals/auth/security_context.md)
+
+#### Key Points
+* A Security context defines privilege and access control settings
+* Can be defined for Pod or per container
+  * Linux capabilities are set at the container level only
+```
+# Pod security example: security-context.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: security-context-demo
+spec:
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 3000
+    fsGroup: 2000
+  volumes:
+  - name: sec-ctx-vol
+    emptyDir: {}
+  containers:
+  - name: sec-ctx-demo
+    image: busybox
+    command: [ "sh", "-c", "sleep 1h" ]
+    volumeMounts:
+    - name: sec-ctx-vol
+      mountPath: /data/demo
+    securityContext:
+      allowPrivilegeEscalation: false
+```
+* In above config file
+  * `runAsUser` field specifies that any container in the pod, all processes run with user ID 1000
+  * `runAsGroup` field specifies the primary group ID of 3000 for all processess within any container
+    * if this is omitted, default will be root(0)
+  * Any files created will be owned by user 1000 and group 3000
+  * Since `fsGroup` is specified, all processes of the container are also part of the supplementary group 2000
+    * The owner for volume `/data/demo` and any files create in that volume will be group ID 2000
+  * To verify
+    * Run pod `kubectl apply -f security-context.yaml`
+    * Run shell in container `kubectl exec -it security-context-demo -- sh`
+      * `ps` to see what user processes are running as
+      * `ls -l` on /data dir to see group 2000
+      * `id` to see user, group, and supplemental group IDs
+```
+# Container security example: security-context-2.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: security-context-demo-2
+spec:
+  securityContext:
+    runAsUser: 1000
+  containers:
+  - name: sec-ctx-demo-2
+    image: gcr.io/google-samples/node-hello:1.0
+    securityContext:
+      runAsUser: 2000
+      allowPrivilegeEscalation: false
+```
+* `securityContext` settings made at the Container level override settings made at the Pod level
+* Assign SELinux labels to a container
+  * `seLinuxOptions` field in `securityContext` section of Pod or Container
+```
+...
+securityContext:
+  seLinuxOptions:
+    level: "s0:c123,c456"
+```
+
+### Secure persistent key value store
+* [Secrets](https://kubernetes.io/docs/concepts/configuration/secret/)
+* [Configure a Pod to Use a ConfigMap](https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/)
+
+#### Key Points
+* 
