@@ -13,11 +13,7 @@
   * `kubectl explain pod.spec`
 * Pay attention to question context
 * Always exit on SSH
-* [YAML Basics in Kubernetes](https://developer.ibm.com/tutorials/yaml-basics-and-usage-in-kubernetes/)
-  * It is a little confusing on when to include a '-' for a list of items under a field
-  * My best advice is to use `kubectl explain` on a resource and see if it includes `[]` in its RESOURCE type
-    * Example: `kubectl explain pod.spec.affinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution`
-      * `RESOURCE: preferredDuringSchedulingIgnoredDuringExecution <[]Object>`
+* [YAML Basics](https://learnxinyminutes.com/docs/yaml/)
 * Use `kubectl <command> -h` to get more info on that command
 * Other great resources:
   * https://github.com/walidshaari/Kubernetes-Certified-Administrator
@@ -1440,6 +1436,194 @@ securityContext:
 ### Secure persistent key value store
 * [Secrets](https://kubernetes.io/docs/concepts/configuration/secret/)
 * [Configure a Pod to Use a ConfigMap](https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/)
+
+#### Key Points
+* A Secret is an object that lets you store and manage a small amount of sensitive data, such as passwords, OAuth tokens, and ssh keys
+* Secrets are namespace specific. They are only encoded with base64 by default
+* To encrypt
+  * Must create an `EncryptionConfiguration` with a key and proper identity
+  * The kube-apiserver needs the `--encryption-provider-config` flag set with `aescbc` or `ksm`
+  * Must recreate secrets after doing the above steps
+  * More info on [encrypting data at rest](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/)
+* To use a Secret, a Pod needs to reference the secret. It can be used with a Pod in two ways:
+  * As files in a volume mounted on one or more of its containers
+  * By the kubelet when pulling images for the pod
+  * As an environment variable
+* Built-in Secrets
+  * Service accounts automatically create and attach Secrets with API credentials
+    * This can be disabled or overrideen if desired
+  * See [Service Account](https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/) docuemntation for more info
+* Creating your own Secrets
+  * Using Kubectl
+    * Create from files
+      * Create DB Username and Password files with credentials
+      ```
+      echo -n 'admin' > ./username.txt # -n = no new line
+      echo -n 'password' > ./password.txt
+      ```
+      * Use `kubectl create secret` to create the secret
+      `kubectl create secret generic db-user-pass --from-file=./username.txt --from-file=./password.txt`
+        * Be sure to escape special characters such as `$`, `\`, `*`, and `!`, or use single quotes
+  * Creating a secret manually
+    * Concert the string to base64
+    `echo -n 'admin' | base64`
+    `echo -n 'password | base64`
+    * Take these strings and create a secret.yaml file
+    ```
+    apiVersion: v1
+    kind: Secret
+    metadata:
+      name: mysecret
+    type: Opaque
+    data:
+      username: <base64 string of username>
+      password: <base64 string of passsword>
+    ```
+    * Apply Secret using `kubectl apply -f ./secret.yaml`
+    * To let the `kubectl apply` command convert the secret data into base64 for you
+    ```
+    apiVersion: v1
+    kind: Secret
+    metadata: 
+      name: mysecret
+    type: Opaque
+    stringData:
+      config.yaml: |-
+        username: {{username}}  # Your deployment tool could replace these values
+        password: {{password}}
+    ```
+    * If both `data` and `stringData` fields are specified, `stringData` will be used
+  * Decoding a secret
+    * `kubectl get secret mysecret -o yaml`
+    * `echo '<base64 encoded value>' | base64 --decode`
+* Using Secrets
+  * Secrets can be mounted as data volumes or exposed as environment variables to be used by a container or pod
+  * Using Secrets as files from a pod
+    1. Create a secret or use an existing one. Multiple pods can reference the same secret
+    2. Modify your pod definition to add a volume under `.spec.volumes[]`. Name the volume anything and have a `.spec.volumes[].secret.secretName` field equal to the name of the Secret object
+    3. Add a `.spec.containers[].volumeMounts[]` to each container that needs the secret. Specify `.spec.containers[].volumeMounts[].readOnly = true` and `.spec.containers[].volumeMounts[].mountPath` to an unused directory name where you would like the secrets to appear
+    4. Modify your image or command line to that the program looks for files in that directory. Each key in the secret `data` map becomes a filename under `mountPath`
+    ```
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: mypod
+    spec:
+      containers:
+      - name: mypod
+        image: redis
+        volumeMounts:
+        - name: secretmount
+          mountPath: "/etc/secretmount"
+          readOnly: true
+      volumes:
+      - name: secretmount
+        secret: 
+          secretName: mysecret
+    ```
+    * Each Secret you want to refer to needs to be in `.spec.volumes`
+    * Secret files permissions
+      * By default it uses `0644`
+      * Configure by adding `.spec.volumes[].secret.defaultMode` to whatever value is required
+      * The value must be specified in demical notation
+  * Mounted secrets are updated automatically
+    * The kubelet checks whether the mounted secret is fresh on periodic syncs
+* Using secrets as environment variables
+  1. Create a secret
+  2. Modify pod definition with `env[].valueFrom.secretKeyRef`
+  3. Modify image or command line for program to look for values in env vars
+  ```
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: mypod
+  spec:
+    containers:
+    - name: mycontainer
+      image: redis
+      env: 
+      - name: SECRET_USERNAME
+        valueFrom:
+          secretKeyRef:
+            name: mysecret
+            key: username
+      - name: SECRET_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: mysecret
+            key: password
+  ```
+* Use `imagePullSecrets` to pass secrets to kubelet
+* Secrets must be created before Pod is created because the secret is validated first
+  * References to secrets that do not exist will prevent the Pod from starting
+* [Use cases](https://kubernetes.io/docs/concepts/configuration/secret/#use-cases)
+* Best practices
+  * Limit access using authorization polices such as RBAC
+  * The ability to `watch` and `list` should be limited because they allow access to all secrets in a namepsace
+  * Applications that need to access the Secret API should perform `get` requests
+  * In a future release, there might be an ability to "bulk watch" to let clients `watch` individual resources
+* Kubelet stores secrets into a `tmpfs` so that the secret is not written to disk
+* Each container that wants to use a secret must mount it for it to be visible to the container
+* [Secret Risks](https://kubernetes.io/docs/concepts/configuration/secret/#risks)
+* ConfigMaps
+  * ConfigMaps allow you to decouple configuration artifacts from image content to keep containerized applications portable
+  * Stores data in key-value pairs or plain config files in any format
+  * Create a ConfigMap
+    * `kubectl create configmap <map-name> <data-source>`
+    * ConfigMap data can be pulled from directories, files, or literal values
+    * ConfigMap from directory
+      * `kubectl create configmap test-config --from-file=configure-pod-container/configmap/`
+    * ConfigMap from files
+      * `kubectl create configmap test-config --from-file=configure-pod-container/configmap/game.properties`
+  * Define container environment variables using ConfigMap data
+    1. Define an environemtn variable as a key-value pair in a ConfigMap
+    `kubectl create configmap special-config --from-literal=special.how=very`
+    2. Assign the `special.how` value to an env var in the Pod spec
+    ```
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      name: mypod
+    spec:
+      containers:
+      - name: test-container
+        image: busybox
+        command: [ "/bin/sh", "-c", "env" ]
+        env:
+        - name: SPECIAL_LEVEL_KEY
+          valueFrom:
+            configMapKeyRef:
+              name: special-config
+              key: special.how
+    ```
+    3. Create the Pod
+    `kubectl apply -f pod.yaml`
+  * To mount all values in a ConfigMap
+  ```
+  containers:
+  - name: test-container
+    image: busybox
+    envFrom:
+    - configMapRef:
+        name: special-config
+  ```
+* Mounted ConfigMaps are updated automatically
+* ConfigMaps should reference properties files, not replace them
+* Like secrets, you must create a ConfigMap before referencing it to a pod
+* ConfigMaps reside in a namespace
+
+## Cluster Maintenance - 11%
+### Understand Kubernetes cluster upgrade process
+* [Upgrading kubeadm clusters](https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-upgrade/)
+* [kubeadm upgrade](https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-upgrade/)
+
+#### Key Points
+* 
+
+## Logging/Monitoring - 5%
+### Understand how to monitor all cluster components
+* [Tools for Monitoring Resources](https://kubernetes.io/docs/tasks/debug-application-cluster/resource-usage-monitoring/)
+* [Kubernetes: A Monitoring Guide](https://kubernetes.io/blog/2017/05/kubernetes-monitoring-guide/)
 
 #### Key Points
 * 
