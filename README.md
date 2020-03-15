@@ -1618,7 +1618,124 @@ securityContext:
 * [kubeadm upgrade](https://kubernetes.io/docs/reference/setup-tools/kubeadm/kubeadm-upgrade/)
 
 #### Key Points
-* 
+* Before you begin:
+  * Upgrade Kubeadm to the latest stable version
+  * Swap must be disabled
+  * The cluster should use a static control plane and etcd pods or external etcd
+  * Read the release notes of all versions between the one you're on and what you're upgrading to
+  * Backup any important componenets, such as app-level state stored in a database
+* Additional info
+  * All containers are restarted after a node gets upgraded
+  * You can only upgrade from one MINOR version to the next MINOR version, or between patches versions of the same MINOR version
+    * 1.16 -> 1.16.2 || 1.16 -> 1.17
+* Determine which version to upgrade to
+  * Find the latest stable release of kubeadm (this version corresponds to the kube version)
+  ```
+  apt update
+  apt-cache madison kubeadm
+  ```
+* Upgrading control plane nodes first
+  * On your first control plane node, upgrade kubeadm
+  ```
+  # Old method
+  apt-mark unhold kubeadm && \ # allow kubeadm to be updated
+  apt-get update && apt-get install -y kubeadm=1.17.x-00 && \
+  apt-mark hold kubeadm   # prevent kubeadm from being updated
+
+  # since apt-get version 1.1, you can also use the following command
+  apt-get update && \
+  apt-get install -y --allow-change-held-packages kubeadm=1.17.x-00
+  ```
+  1. Verify kubeadm version - `kubeadm version`
+  2. Drain the control plane node - `kubectl drain <cp-node-name> --ignore-daemonsets`
+  3. Run upgrade checks to make sure cluster is in a ready state - `sudo kubeadm upgrade plan`
+  4. Choose a version to upgrade to, and run the appropriate command
+  `sudo kubeadm upgrade apply v1.17.x`
+    * Note: `kubeadm upgrade` also automatically renews the certificates that it manages on this node. To opt-out of cert renewal, use the `--certificate-renewal=false` flag
+  5. Upgrade you CNI provider (networking provider) such as Flannel or Calico
+  6. Uncordon the control plane node - `kubectl uncordon <cp-node-name>`
+  7. Repeat steps 1-6 to upgrade additional control plane nodes but instead of `sudo kubeadm upgrade apply` use `sudo kubeadm upgrade node`
+    * `sudo kubeadm upgrade plan` is not needed
+* Upgrade kubelet and kubectl
+  1. Upgrade kubelet and kubectl on all control plane nodes
+  ```
+  apt-mark unhold kubelet kubectl && \
+  apt-get update && apt-get install -y kubelet=1.17.x-00 kubectl=1.17.x-00 && \
+  apt-get hold kubelet kubectl
+
+  # v1.1 of apt-get use the following
+  apt-get update && \
+  apt-get install -y --allow-change-held-packages kubelet=1.17.x-00 kubectl=1.17.x-00
+  ```
+  2. Restart the kubelet - `sudo systemctl restart kubelet`
+* Upgrade worker nodes
+  * Upgrade kubeadm using same commands from control plane node
+  * Drain the node
+  `kubectl cordon <worker-node-name> --ignore-daemonsets`
+  * Upgrade the node - `sudo kubeadm upgrade node`
+  * Upgrade kubelet and kubectl using same commands from control plane node
+  * Restart the kubelet
+* Verify status of node - `kubectl get nodes`
+* Worst-case - Recovering from a failure state
+  * If `kubeadm upgrade` fails and does not roll back, you can run `kubeadm  upgrade` again
+  * To recover from a bad state, you can also run `kubeadm upgrade apply --force` without changing the version that your cluster is running
+  * Upgrading with kubeadm write the following backup folders under `/etc/kubernetes/tmp`: - `kubeadm-backup-etcd-<date>-<time>` - `kubeadm-backup-manifests-<date>-<time>`
+    * `kubeadm-backup-etcd` contains a backup for the local etcd member data
+      * It can be manually restored in `/var/lib/etcd`
+    * `kubeadm-backup-manifests` contains a backup of the static Pod manifest files
+      * It can be manually restored in `/etc/kubernetes/manifests`
+* How it works - This is important to know
+  * `kubeadm upgrade apply`
+    * Checks that your cluster is in an upgradable state
+      * The API server is reachable
+      * All nodes are in the `Ready` state
+      * The control plane is healthy
+    * Enforces the version skew policies
+    * Makes sure the control plane images are available to pull to the machine
+    * Upgrades the control plane components or rollsback if any of them fails to come up
+    * Applies the new `kube-dns` and `kube-proxy` manifests and makes sure that all necessary RBAC rules are created
+    * Creates new cert and key files on the API server and backs up old files if they're about to expire in 180 days
+  * `kubeadm upgrade node` on additional control plane nodes
+    * Fetches the kubeadm `ClusterConfiguration` from the cluster
+    * Optionally backs up the kube-apiserver cert
+    * Upgrades the static Pod manifests for the control plane components
+    * Upgrades the kubelet configuration for this node
+  * `kubeadm upgrade node` on worker nodes
+    * Fetches the kubeadm `ClusterConfiguration` from the cluster
+    * Upgrades the kubelet configuration for this node
+
+### Facilitate OS upgrades
+#### Key Points
+* Similar to upgrading the kubernetes components, to upgrade the underlying host, do the following
+  1. Drain the node - `kubectl cordon <node-name> --ignore-daemonsets`
+  2. Upgrade the OS
+  3. Uncordon the node - `kubectl uncordon <node-name>`
+
+### Implement backup and restore methodologies
+* [Backing up an etcd cluster](https://kubernetes.io/docs/tasks/administer-cluster/configure-upgrade-etcd/#backing-up-an-etcd-cluster)
+
+#### Key Points
+* Two main pieces to backup
+  * Certificate files
+  * Etcd database
+* Backing up certificate files
+  * Backup the `/etc/kubernetes/pki` directory
+    * This can be done with a cronjob
+* Backup the etcd database
+  * All kubernetes objects are stored in etcd
+  * This snapshot file contains all kubernetes states and critical information
+  * Encrypt the snapshot files whenever possible
+  * Built-in snapshot
+    * Run `etcd snapshot save` on a control plane node
+    * Example of taking a snapshot of the keyspace served by `$ENDPOINT` to the file `snapshotdb`
+```
+ETCDCTL_API=3 etcdctl endpoints $ENDPOINT snapshot save snapshotdb
+# exit 0
+
+# verify the snapshot
+ETCDCTL_API=3 etcdctl --write-out=table snapshot status snapshotdb
+```
+  * Can also do a volume snapshot of the node
 
 ## Logging/Monitoring - 5%
 ### Understand how to monitor all cluster components
