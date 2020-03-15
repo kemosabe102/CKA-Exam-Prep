@@ -1737,6 +1737,31 @@ ETCDCTL_API=3 etcdctl --write-out=table snapshot status snapshotdb
 ```
   * Can also do a volume snapshot of the node
 
+## Troubleshooting - 10%
+### Troubleshoot application failure
+* [Troubleshoot applications](https://kubernetes.io/docs/tasks/debug-application-cluster/debug-application/)
+* [Determine the Reason for Pod Failure](https://kubernetes.io/docs/tasks/debug-application-cluster/determine-reason-pod-failure/)
+* [Debug Pods and ReplicationControllers](https://kubernetes.io/docs/tasks/debug-application-cluster/debug-pod-replication-controller/)
+
+#### Key Points
+* 
+
+### Troubleshoot control plane failure
+* [Troubleshoot clusters](https://kubernetes.io/docs/tasks/debug-application-cluster/debug-cluster/)
+
+#### Key Points
+* 
+
+### Troubleshoot worker node failure
+#### Key Points
+* Similar to control plane failure
+
+### Troubleshoot networking
+* [Debug Services](https://kubernetes.io/docs/tasks/debug-application-cluster/debug-service/)
+
+#### Key Points
+* 
+
 ## Logging/Monitoring - 5%
 ### Understand how to monitor all cluster components
 * [Tools for Monitoring Resources](https://kubernetes.io/docs/tasks/debug-application-cluster/resource-usage-monitoring/)
