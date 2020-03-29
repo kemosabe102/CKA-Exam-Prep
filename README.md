@@ -1741,31 +1741,313 @@ ETCDCTL_API=3 etcdctl --write-out=table snapshot status snapshotdb
 ### Troubleshoot application failure
 * [Troubleshoot applications](https://kubernetes.io/docs/tasks/debug-application-cluster/debug-application/)
 * [Determine the Reason for Pod Failure](https://kubernetes.io/docs/tasks/debug-application-cluster/determine-reason-pod-failure/)
-* [Debug Pods and ReplicationControllers](https://kubernetes.io/docs/tasks/debug-application-cluster/debug-pod-replication-controller/)
 
 #### Key Points
-* 
+* Debugging Pods
+  * First step is taking a look at the pod
+  `kubectl describe po ${POD_NAME}`
+    * Look at the state of the containers. Are they all `Running`? Any recent restarts?
+  * **My pod stays pending**
+    * If a pod is stuck in `Pending` it means that it can not be scheduled onto a node. This can happen due to the following:
+    * **You don't have enough resources** - You may have exhausted CPU or memory in your cluster. If so, delete pods, adjust resource requests, or add new nodes to your cluster
+    * **You are using `hostPort`** - when you bind a Pod to `hostPort` there are a limited number of places that a pod can be scheduled. In most cases, `hostPort` is unnecessary, try using a Service object to expose your Pod instead. If you require `hostPort`, you can only schedule as many Pods as there are nodes in your cluster
+  * **My pod stays waiting**
+    * If a pod is stuck in `Waiting` state, then it has been scheduled to a worker node, but it can't run on that machine. `kubectl describe ...` should be informative as to why
+    * A common cause is a failure to pull the image. Check these three things:
+      * Make sure that you have the name of the image correct
+      * Have you pushed the image to the repo?
+      * Run a manual `docker pull <image>` on your machine to see if the image can be pulled
+  * **My pod is crashing or otherwise unhealthy**
+    * First, take a look at the logs of the current container
+    `kubectl logs ${POD_NAME} ${CONTAINER_NAME}`
+    * If the container previously crashed, check the previous container's crash log
+    `kubectl logs --previous ${POD_NAME} ${CONTAINER_NAME}`
+  * **My pod is running but not doing what I told it to do**
+    * If your pod is not behaving as expected, check if there was an error in your pod description (`mypod.yaml`), and that the error was silently ignored when you created the pod
+    * Validate the config when it is applied
+    `kubectl apply --validate -f pod.yaml`
+    * Next, check if whether the pod on the apiserver matches the pod you meant to create
+    `kubectl get po mypod -o yaml > mypod-on-apiserver.yaml`
+      * Manually compare with your original pod description
+* Debugging Replication Controllers
+  * These are pretty straightforward. They can either create pods or they can't
+  * Use `kubectl describe rc ${CONTROLLER_NAME}` to introspect events related to the replication controller
+* Debugging Services
+  * Services provide load balancing across a set of pods. There are several common problems that can make Services not work properly
+  * First, verify that there are endpoints for the Service
+  `kubectl get endpoints ${SERVICE_NAME}`
+    * Make sure the endpoints match up with the number of containers you expect to be a member of your service
+  * **My service is missing endpoints**
+    * Try listing pods using the labels that this Service uses
+    ```
+    # For example
+    ...
+    spec:
+      - selector:
+        name: nginx
+        type: frontend
+    ```
+    You can use `kubectl get pods --selector=name=nginx,type=frontend` to list pods that match this selector. Verify that the list matches the Pods that you expect
+    * If the pods match your expectations, but your endpoints are still empty, it's possible that you don't have the right ports exposed. If your service has a `containerPort` specified, but the Pods that are selected don't have that port listed, then they won't be added to the endpoints list
+    * Verify that the pod's `containerPort` matches up with the Service's `targetPort`
+  * **Network traffic is not forwarded**
+    * If you can connect to the service, but the connection is immediately dropped, and there are endpoints in the endpoints list, it's likely that the proxy can't contact your pods
+    * Three things to check
+      * Are your pods working correctly? Look for restart count and follow the debug pods info
+      * Can you connect to your pods directly? Get the IP address for the Pod, and try to connect directly to that IP
+      * Is your application serving on the port that you configured? K8s doesn't do port remapping, so if your app serves on 8080, the `containerPort` field needs to be 8080
 
 ### Troubleshoot control plane failure
 * [Troubleshoot clusters](https://kubernetes.io/docs/tasks/debug-application-cluster/debug-cluster/)
 
 #### Key Points
-* 
+* First, rule out the application as the root cause of the problem
+* Listing your cluster
+  * Check if your nodes are all registered correctly
+  `kubectl get nodes`
+  * Verify that all nodes you expect to see are present and all in the `Ready` state
+  * To get detailed information about the overall health of your cluster, you can run:
+  `kubectl cluster-info dump > ./cluster-health.txt`
+  * For less detailed information about the overall health of your cluster
+  `kubectl get componentstatuses`
+* **Look at logs**
+  * For now, digging deeper into the cluster requires logging into the relevant machines
+  * For systemd-based systems, use `journalctl`
+    * **Master**
+    `journalctl -u kube-apiserver|kube-scheduler|kube-contaoller-manager | less`
+    * **Worker Nodes**
+    `journalctl -u kubelet | less`
+  * For non-systemd-based systems, here are the relevant log locations
+    * **Master**
+    `/var/log/kube-apiserver.log`
+    `/var/log/kube-scheduler.log`
+    `/var/log/kube-contaoller-manager.log`
+    * **Worker Nodes**
+    `/var/log/kubelet.log`
+    `/var/log/kube-proxy.log`
+* **General overview of cluster failure modes**
+  * Root causes
+    * VM(s) shutdown
+      * Apiserver VM shutudown or apiserver crashing
+      * Supporting services (node controller, rc manager, scheduler, etc) VM shutdown or crashing
+      * Individual node shuts down
+    * Network partition within cluster, or between cluster and users
+      * Partition A thinks the nodes in partition B are down
+      * Partition B thinks the apiserver is down (assuming it is in A)
+    * Crashes in K8s software
+    * Data loss or unavailability of persistent storage
+      * Apiserver backing storage lost
+    * Operator error, such as misconfigured K8s software or app software
 
 ### Troubleshoot worker node failure
 #### Key Points
-* Similar to control plane failure
+* See control plane failure for worker specific information
 
 ### Troubleshoot networking
 * [Debug Services](https://kubernetes.io/docs/tasks/debug-application-cluster/debug-service/)
 
 #### Key Points
-* 
+* For many steps here you will want to see what a Pod running in the cluster sees. The simplest
+way to do this is to run an interactive Pod
+`kubectl run -it --rm --restart=Never busybox --image=busybox sh`
+* If you already have a running Pod that you prefer to use
+`kubectl exec <POD_NAME> -c <CONTAINER_NAME> -- <COMMAND>`
+* **Does the Service exist?**
+  * If the service doesn't exist, you would get something like:
+  ```
+  wget -O- hostnames
+  Resolving hostnames (hostnames)... failed: Name or service not known.
+  wget: unable to resolve host address 'hostnames'
+  ```
+  * First check if that Service actually exists and create if needed
+  `kubectl get svc hostnames`
+  `kubectl expose deployment hostnames --port=80 --target-port=9376`
+  * Verify that it exists now
+  `kubectl get svc hostnames`
+* **Does the Service work by DNS name?**
+  * One of the most common ways that clients consume a Service is through a DNS name
+  * From a Pod in the same namespace
+  ```
+  nslookup hostnames
+
+  Address 1: 10.0.0.10 kube-dns.kube-system.svc.cluster.local
+  Name:      hostnames.default
+  Address 1: 10.0.1.175 hostnames.default.svc.cluster.local
+  ```
+  * If this fails, your Pod and Service might be in a different namespace. Try a namespace-qualified name
+  ```
+  nslookup hostnames.default # for the default namespace
+
+  Address 1: 10.0.0.10 kube-dns.kube-system.svc.cluster.local
+  Name:      hostnames.default
+  Address 1: 10.0.1.175 hostnames.default.svc.cluster.local
+  ```
+  * If this works, you'll need to adjust your app to use a cross-namespace name. If this still fails, try a fully-qualified name
+  ```
+  nslookup hostnames.default.svc.cluster.local # for the default namespace
+
+  Address 1: 10.0.0.10 kube-dns.kube-system.svc.cluster.local
+  Name:      hostnames.default
+  Address 1: 10.0.1.175 hostnames.default.svc.cluster.local
+  ```
+  * Try it from a Node in the cluster
+  ```
+  nslookup hostnames.default.svc.cluster.local 10.0.0.10 # Note: 10.0.0.10 is the cluster's DNS Service IP, yours might be different
+
+  Server:         10.0.0.10
+  Address:        10.0.0.10
+  Name:   hostnames.default.svc.cluster.local
+  Address: 10.0.1.175
+  ```
+  * If a fully qualified name lookup works but not a relative one, check `/etc/resolv.conf` file in your Pod. From within a Pod
+  ```
+  cat /etc/resolv.conf
+
+  # should look something like
+  nameserver 10.0.0.10
+  search default.svc.cluster.local svc.cluster.local cluster.local example.com
+  options ndots:5
+  ```
+  * Does any Service work by DNS name?
+    * If the above still fails, DNS lookups are not working for your Service
+    * From within a Pod
+    ```
+    nslookup kubernetes.default
+
+    # should see something like
+    Server:    10.0.0.10
+    Address 1: 10.0.0.10 kube-dns.kube-system.svc.cluster.local
+    Name:      kubernetes.default
+    Address 1: 10.0.0.1 kubernetes.default.svc.cluster.local
+    ```
+    * If this fails, see the `kube-proxy` section, or even go back to the top of this document and start over, but instead of debugging your own Service, debug the DNS Service.
+* **Does the Service work by IP?**
+  * Assuming DNS checks out okay, the next thing to test is if your Service works by its IP address
+  * From a Pod in your cluster, access the Service's IP
+  ```
+  wget -qO- 10.0.1.175:80 # Service IP and port
+
+  # should see something like
+  hostnames-0uton
+  ```
+  * If your Service is working, you should get correct responses. If not, read on.
+* **Is the Service defined correctly?**
+  * Double and triple check that your Service is correct and matches your Pod's port
+  `kubectl get svc hsotnames -o json`
+  * Is the Service port you are trying to access listed in `spec.ports[]`?
+  * Is the `targetPort` correct for your Pods (some Pods use a different port than the Svc)
+  * If you meant to use a numeric port, it is a number (9376) or a string "9376"?
+  * If you meant to use a named port, do your Pods expose a port with the same name?
+  * Is the port's `protocol` correct for your pods?
+* **Does the Service have any Endpoints?**
+  * If you got this far, you have confirmed that your Service is correctly defined and is resolved by DNS
+  * Now check that the Pods you ran are actually being selected by the Service
+  `kubectl get pods -l run=hostnames`
+  * If the restart count is high, go through debugging pods section
+  * Confirm that the endpoints controller has found the correct Pods or your Service
+  `kubectl get endpoints hostnames`
+  * If `ENDPOINTS` is `<none>`, check the `spec.selector` field of your Service and the `metadata.labels` values on your Pods
+    * A common mistake is to have a typo or other error
+* **Are the Pods working?**
+  * Now we now the Service exists and has selected your pods
+  * Let's bypass the Service and go directly to the Pods, as listed by the Endpoints above
+  * From within a Pod
+  ```
+  for ep in 10.244.0.5:9376 10.244.0.6:9376 10.244.0.7:9376; do
+      wget -qO- $ep
+  done
+
+  # should see something like
+  hostnames-0uton
+  hostnames-bvc05
+  hostnames-yp2kp
+  ```
+  * Each pod should return its own hostname
+* **Is the kube-proxy working?**
+  * So now, your Service is running, has Endpoints, and your Pods are actually serving
+  * Now the whole Service prixy mechanism is suspect
+  * The default implementation of Services is kube-proxy
+  * Is kube-proxy running?
+    * Confirm that `kube-proxy` is running on your Nodes. Run this directly on a node
+    ```
+    ps auxw | grep kube-proxy
+
+    # should see something like
+    root  4194  0.4  0.1 101864 17696 ?    Sl Jul04  25:43 /usr/local/bin/kube-proxy --master=https://kubernetes-master --kubeconfig=/var/lib/kube-proxy/kubeconfig --v=2
+    ```
+    * Confirm that it is not failing something obvious, like contacting the master
+    `journalctl -u kube-proxy | less`
+      * If you see an error about contacting the master, check your Node configuration and install steps
+    * Another reason might be that the required `conntrack` binary cannot be found
+    `sudo apt install conntrack` and then retry
+    * In the log listed above, the line `Using iptables Proxier` means that kube-proxy is running in `iptables` mode. Could also be `ipvs`
+  * **Iptables mode**
+    * In "iptables" mode, you should see something like the following on a Node
+    ```
+    iptables-save | grep hostnames
+
+    # should see something like
+    -A KUBE-SEP-57KPRZ3JQVENLNBR -s 10.244.3.6/32 -m comment --comment "default/hostnames:" -j MARK --set-xmark 0x00004000/0x00004000
+    -A KUBE-SEP-57KPRZ3JQVENLNBR -p tcp -m comment --comment "default/hostnames:" -m tcp -j DNAT --to-destination 10.244.3.6:9376
+    -A KUBE-SERVICES -d 10.0.1.175/32 -p tcp -m comment --comment "default/hostnames: cluster IP" -m tcp --dport 80 -j KUBE-SVC-NWV5X2332I4OT4T3
+    -A KUBE-SVC-NWV5X2332I4OT4T3 -m comment --comment "default/hostnames:" -m statistic --mode random --probability 0.33332999982 -j KUBE-SEP-WNBA2IHDGP2BOBGZ
+    ```
+    * For each port of each Service, there should be 1 rule in `KUBE-SERVICeS` and one `KUBE-SVC-<hash>` chain
+    * For each Pod endpoint, there should be a small number of rules in that `KUBE-SVC-<hash>` and one `KUBE-SEP-<hash>` chain with a small number of rules in it
+  * **IPVS Mode**
+    * In "ipve" mode, you should see something like the following on a Node
+    ```
+    ipvsadm -ln
+
+    # should see something like
+    Prot LocalAddress:Port Scheduler Flags
+      -> RemoteAddress:Port           Forward Weight ActiveConn InActConn
+    ...
+    TCP  10.0.1.175:80 rr
+      -> 10.244.0.5:9376               Masq    1      0          0
+      -> 10.244.0.6:9376               Masq    1      0          0
+      -> 10.244.0.7:9376               Masq    1      0          0
+    ...
+    ```
+    * For each port of each Service, plus any NodePorts, external IPs, and load-balancer IPs, kube-proxy will create a virtual server
+    * For each Pod endpoint, it will create corresponding real servers. In this example, service hostnames (`10.0.1.175:80`) has 3 endpoints
+  * **Userspace mode**
+    * In rare cases, you may be using "userspace" mode
+    ```
+    iptables-save | grep hostnames
+
+    # should see something like
+    -A KUBE-PORTALS-CONTAINER -d 10.0.1.175/32 -p tcp -m comment --comment "default/hostnames:default" -m tcp --dport 80 -j REDIRECT --to-ports 48577
+    -A KUBE-PORTALS-HOST -d 10.0.1.175/32 -p tcp -m comment --comment "default/hostnames:default" -m tcp --dport 80 -j DNAT --to-destination 10.240.115.247:48577
+    ```
+    * There should be 2 rules for each port of your Service
+* Is kube-proxy proxying?
+  * Try to access your Service by IP from one of your nodes
+  ```
+  curl 10.0.1.175:80
+  ```
+  * If this fails and you are using the iptables proxy, look at the kube-proxy logs for specific lines like
+  `Setting endpoints for default/hostnames:default to [10.244.0.5:9376 10.244.0.6:9376 10.244.0.7:9376]`
+  * If you don't see those, try restarting `kube-proxy` with the `-v` flag set to 4, and then check the logs again
 
 ## Logging/Monitoring - 5%
 ### Understand how to monitor all cluster components
 * [Tools for Monitoring Resources](https://kubernetes.io/docs/tasks/debug-application-cluster/resource-usage-monitoring/)
 * [Kubernetes: A Monitoring Guide](https://kubernetes.io/blog/2017/05/kubernetes-monitoring-guide/)
+
+#### Key Points
+* 
+
+## Application Lifecycle Management - 8%
+### Understand deployments and how to perform rolling updates and rollbacks
+* [a](URL)
+
+#### Key Points
+* 
+
+## Storage - 7%
+### Understand persistent volumes and know how to create them
+* [a](URL)
 
 #### Key Points
 * 
