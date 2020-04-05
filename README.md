@@ -19,6 +19,13 @@
   * https://github.com/walidshaari/Kubernetes-Certified-Administrator
 
 
+## Things to practice before the test
+* Create yaml file of a resource by using `kubectl` command 
+  * Basic pod
+  * Deployment
+  * Service?
+* [General Tasks](https://multinode-kubernetes-cluster.readthedocs.io/en/latest/index.html)
+
 ## Scheduling - 5%
 ### Use label selectors to schedule pods
 * [Assinging Pods to Nodes](https://kubernetes.io/docs/concepts/configuration/assign-pod-node/)
@@ -2030,24 +2037,150 @@ way to do this is to run an interactive Pod
   `Setting endpoints for default/hostnames:default to [10.244.0.5:9376 10.244.0.6:9376 10.244.0.7:9376]`
   * If you don't see those, try restarting `kube-proxy` with the `-v` flag set to 4, and then check the logs again
 
+## Application Lifecycle Management - 8%
+### Understand deployments and how to perform rolling updates and rollbacks
+* [Deployments](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/)
+* [Canary Deployment](https://kubernetes.io/docs/concepts/cluster-administration/manage-deployment/#canary-deployments)
+* [Kubectl Rollout - Command reference](https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#rollout)
+
+#### Key Points
+* A deployment provides declarative updates for Pods and ReplicaSets
+  * You describe a desired state in a deployment, and the deployment controller change sthe actual state to the desired state at a controlled rate
+* Typical Use Cases
+  * Create a deployment to rollout a ReplicaSet (RS) - The ReplicaSet creates Pods in the background
+  * Declare the new state of the Pods by updating that PodTemplateSpec of the Deployment. A new RS is created and the Deployment manages moving the Pods from the old RS to the new one at a controller rate. Each new RS updates the revision of the Deployment
+  * Rollback to an earlier Deployment revision if the current state of the Deployment is not stable. Each rollback updates the revision of the Deployment
+  * Scale up the Deployment to facilitate more load
+  * Pause the Deployment to apply multiple fixes to its PodTemplateSpec and then resume it to start a new rollout
+* Creating a Deployment
+  * After running `kubectl apply -f deployment.yaml`, use `kubectl rollout status deployment.v1.apps/deployment` to see the rollout status
+  * Run `kubectl get deployments` to see all deployments
+  * A Pod template hash is added by the Deployment controller to every RS that a Deployment creates or adopts
+    * This label ensures that child RSs of a Deployment do not overlap
+* Updating a Deployment
+  * **Note:** A Deployment's rollout is triggered if and only if the Deployment's Pod template is changed. Other updates, such as scaling the deployment, do not trigger a rollout
+  * Update the pods version - Use the `--record` flag to write the command executed in the resource annotation `kubernetes.io/change-cause`. It is useful to see the commands executed in each Deployment revision. Here are a few ways to do this
+  `kubectl set image deployment/nginx-deployment nginx=nginx:1.16.1 --record`
+  `kubectl edit deployment/nginx-deployment` and change the version manually in your text editor
+  * Check rollout status `kubectl rollout status deployment/nginx-deployment`
+  * Check the new RS `kubectl get rs`
+    * You will see the old one with 0 replicas and the new one
+  * Get details of the deployment
+  `kubectl describe deployments`
+* Rolling back a deployment
+  * Checking rollout history of a deployment
+    * Check the revisions
+    `kubectl rollout history deployment/nginx-deployment`
+    * It's possible to annotate a custom `CHANGE-CAUSE` record message
+    `kubectl annotate deployment/nginx-deployment kubernetes.io/change-cause="image updated to 1.16.1"`
+    * To see the details of a specific revision
+    `kubectl rollout history deployment/nginx-deployment --revision=2`
+  * Rolling back to a previous revision
+    * Undo the current rollout back to the previous revision
+    `kubectl rollout undo deployment/nginx-deployment`
+    * To a specific revision
+    `kubectl rollout undo deployment/nginx-deployment --to-revision=1`
+* Scaling a deployment
+  * `kubectl scale deploy/nginx-deployment --replicas=10`
+  * To enable horizontal pod autoscaling
+  `kubectl autoscale deployment/nginx-deployment --min=10 --max=15 --cpu-percent=80`
+* Pause deployment
+  * Prevent a deployment from being updated
+  `kubectl rollout pause deploy/nginx-deployment`
+  * Then update the deployment and notice that it will not start the rollout process
+  * To resume `kubectl rollout resume deploy/nginx-deployment`
+* Deployment Status
+  * Progressing Deployment
+    * Deployment creates a new RS
+    * Deployment is scaling up its newer RS
+    * Deployment is scaling down its older RS
+    * New pods become ready or available
+  * Complete Deployment
+    * All of the replicas associated with the Deployment have been updated to the latest version you've specified
+    * All of the replicas associated with the Deployment are available
+    * No old replicas for the Deployment are running
+  * Failed Deployment
+    * Your deployment may get stuck trying to deploy its newer RS
+    * Insufficient quota
+    * Readiness probe failures
+    * Image pull errors
+    * Insufficient permissions
+    * Limit ranges
+    * Application runtime misconfiguration
+  * One way to detect this condition is to specify a deadline parameter in your Deployment spec `.spec.progressDeadlineSeconds`
+    * Pausing a deployment does not trigger this condition
+  * To see failures better, check the `conditions` section of a deployment
+  `kubectl get deploy/nginx-deployment -o yaml`
+
+### Know various ways to configure applications
+* [Configuration Best Practices](https://kubernetes.io/docs/concepts/configuration/overview/)
+* [Inject Data into Apps](https://kubernetes.io/docs/tasks/inject-data-application/define-command-argument-container/)
+* [Secrets](https://kubernetes.io/docs/tasks/inject-data-application/distribute-credentials-secure/)
+* [PodPreset and ConfigMaps](https://kubernetes.io/docs/tasks/inject-data-application/podpreset/)
+* [Memory Resource Limits](https://kubernetes.io/docs/tasks/configure-pod-container/assign-memory-resource/)
+
+#### Key Points
+* Define a command and arguments when you create a Pod
+  * The `command` field corresponds to `entrypoint` in some container runtimes
+* Use environment variables to define arguments for the command
+  ```
+  env:
+  - name: MESSAGE
+    value: "hello world"
+  command: ["/bin/echo"]
+  args: ["$(MESSAGE)"]
+  ```
+* Run a command in a shell
+  ```
+  command: ["/bin/sh"]
+  args: ["-c", "while true; do echo hello; sleep 10; done"]
+  ```
+* Use Labels, annotations, and selectors
+* Use Secrets
+  * Secrets let you store and manage sensitive information that can be used in a container image
+* Use PodPreset and ConfigMaps
+  * Create a `PodPreset` resource with a volume mount and an environmental variable
+    * Use `matchLabels` selector to match Pods that this should apply to
+  * When a `PodPreset` is applied to a Pod, there will be annotations in the Pod Spec with the presets applied
+  * Create a new Pod with the selected labels
+    * The Pod should be updated by the admission controller with the `PodPreset` volume and env var
+  * Pod spec with ConfigMap
+    * Create a ConfigMap with env vars
+    * Create a PodPreset manifest referencing that ConfigMap
+    * Create Pod and verify the addition of env vars
+  * If there is a conflict, the `PodPreset` admission controller logs a warning container the details of the conflict and does not update the Pod
+
+### Know hwo to scale applications
+* [Scaling your application](https://kubernetes.io/docs/concepts/cluster-administration/manage-deployment/#scaling-your-application)
+
+#### Key Points
+* `kubectl scale deployment/nginx --replicas=2`
+* `kubectl autoscale deployment/nginx --min=1 --max=4`
+
+### Understand the primitives necessary to create a self-healing application
+* [Deployments](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/)
+* [ReplicaSet](https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/)
+* [DaemonSet](https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/)
+
+#### Key Points
+* The primitives used are `Deployments`, `ReplicaSet`, and `DaemonSets`
+* A `Deployment` is an object which can own `ReplicaSet`s and update them and their Pods via declarative, server-side rolling updates
+  * When you use a Deployment, you don't have to worry about manageing the RS that they create
+* A `ReplicaSet`'s purpose is to maintain a stable set of replica pods running at any given time. It is often used to guarantee the availability of a specified number of idential pods
+* A `DaemonSet` can be used instead of a RS for Pods that provide a machine-level function, such as maching monitoring or logging
+  * These Pods have a lifetime that is tied to a machine lifetime
+
+## Storage - 7%
+### Understand persistent volumes and know how to create them
+* [Persistent Volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/)
+
+#### Key Points
+* 
+
 ## Logging/Monitoring - 5%
 ### Understand how to monitor all cluster components
 * [Tools for Monitoring Resources](https://kubernetes.io/docs/tasks/debug-application-cluster/resource-usage-monitoring/)
 * [Kubernetes: A Monitoring Guide](https://kubernetes.io/blog/2017/05/kubernetes-monitoring-guide/)
-
-#### Key Points
-* 
-
-## Application Lifecycle Management - 8%
-### Understand deployments and how to perform rolling updates and rollbacks
-* [a](URL)
-
-#### Key Points
-* 
-
-## Storage - 7%
-### Understand persistent volumes and know how to create them
-* [a](URL)
 
 #### Key Points
 * 
