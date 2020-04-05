@@ -17,7 +17,7 @@
 * Use `kubectl <command> -h` to get more info on that command
 * Other great resources:
   * https://github.com/walidshaari/Kubernetes-Certified-Administrator
-
+  * https://github.com/burkeazbill/cka-studyguide
 
 ## Things to practice before the test
 * Create yaml file of a resource by using `kubectl` command 
