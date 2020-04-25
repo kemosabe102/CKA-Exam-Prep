@@ -26,288 +26,6 @@
   * Service?
 * [General Tasks](https://multinode-kubernetes-cluster.readthedocs.io/en/latest/index.html)
 
-## Scheduling - 5%
-### Use label selectors to schedule pods
-* [Assinging Pods to Nodes](https://kubernetes.io/docs/concepts/configuration/assign-pod-node/)
-* [Label-Selectors](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#label-selectors)
-  * The label selector is the core grouping primitive in Kubernetes
-
-* Using labels to filter pods
-```
-kubectl get pods -l environment=production,tier=frontend
-kubectl get pods -l 'environment in (production),tier in (frontend)'
-```
-
-#### [nodeSelector](https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#nodeselector) - simpliest recommended method
-1. Label Node
-  * For a [more secure labeling option](https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#node-isolation-restriction), add the prefix `node-restriction.kubernetes.io/` to the label key
-```
-kubectl get nodes
-kubectl label nodes <node_name> <label_key>=<label_value>
-```
-2. Verify node label
-```
-kubectl get nodes --show-labels
-kubectl describe node <node_name>
-```
-3. Add nodeSelector field to pod spec
-  * Create pod yaml to edit
-```
-kubectl run <pod_name> --image=<pod_image> -o yaml --dry-run > nodeSelector.yaml
-```
-  * Edit yaml and add the nodeSelector field under pod.spec
-```
-kind: Pod
-spec:
-  nodeSelector:
-    <label_key>: <label_value>
-  containers:
-  - name: ...
-```
-
-#### [Affinity and anti-affinity](https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#affinity-and-anti-affinity)
-More expressive and flexible way to affect scheduling
-##### nodeAffinity
-Node affinity is conceptually similar to `nodeSelector` – it allows you to constrain which nodes your pod is eligible to be scheduled on, based on labels on the node.
-1. Label Node
-2. Add affinity field and nodeAffinity sub-field to pod spec
-  * Create pod yaml to edit
-```
-kubectl run <pod_name> --image=<pod_image> -o yaml --dry-run > nodeAffinity.yaml
-```
-  * Edit yaml and add the affinity.nodeAffinity fields under pod.spec
-```
-kind: Pod
-spec:
-  affinity:
-    nodeAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-        nodeSelectorTerms:
-        - matchExpressions:
-          - key: <node-label-key>
-            operator: In    # Valid operators are In, NotIn, Exists and DoesNotExist. 
-            values:
-            - <node-label-value>
-      preferredDuringSchedulingIgnoredDuringExecution:
-      - weight: 1   # required field
-        preference:
-          matchExpressions:
-          - key: <another-node-label-key>
-            operator: In
-            values:
-            - <another-node-label-value>
-  containers:
-  - name: ...
-```
-##### podAffinity and podAntiAffinity
-Affects scheduling based on labels on **pods** that are already running on the node rather than based on labels on nodes
-1. Label Node
-2. Add affinity field and nodeAffinity sub-field to pod spec
-  * Create pod yaml to edit
-```
-kubectl run <pod_name> --image=<pod_image> -o yaml --dry-run > podAffinity.yaml
-```
-  * Edit yaml and add the affinity.podAffinity and/or affinity.podAntiAffinity fields under pod.spec
-```
-kind: Pod
-spec:
-  affinity:
-    podAffinity:
-      requiredDuringSchedulingIgnoredDuringExecution:
-      - labelSelector:
-          matchExpressions:
-          - key: <label_key>
-            operator: In
-            values:
-            - <label_value>
-        topologyKey: failure-domain.beta.kubernetes.io/zone   # required field
-    podAntiAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-      - weight: 100
-        podAffinityTerm:
-          labelSelector:
-            matchExpressions:
-            - key: <label_key>
-              operator: In
-              values:
-              - <label_value>
-          topologyKey: failure-domain.beta.kubernetes.io/zone   # required field
-  containers:
-  - name: ...
-```
-  * topologyKey
-    * In principle, the topologyKey can be any legal label-key
-    * Note: Pod anti-affinity requires nodes to be consistently labelled, i.e. every node in the cluster must have an appropriate label matching `topologyKey`. If some or all nodes are missing the specified `topologyKey` label, it can lead to unintended behavior.
-
-### Understand the role of Daemonsets
-* [DaemonSet](https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/)
-A DaemonSet ensures that all (or some) Nodes run a copy of a Pod. As nodes are added to the cluster, Pods are added to them. As nodes are removed from the cluster, those Pods are garbage collected. Deleting a DaemonSet will clean up the Pods it created.
-* Some typical uses of a DaemonSet are:
-  * running a cluster storage daemon, such as `glusterd`, `ceph`, on each node
-  * running a logs collection daemon on every node, such as `fluentd` or `filebeat`
-  * running a node monitoring daemon on every node, such as Prometheus, New Relic agent, Sysdig agent, etc
-
-* Required fields
-  * .spec.template
-    * This a pod template. It has exactly the same schema as a pod
-  * .spec.selector
-    * This field is a pod selector
-
-#### How Daemon Pods are Scheduled
-* A DaemonSet ensures that all eligible nodes run a copy of a Pod
-* DaemonSet pods are created and scheduled by the DaemonSet controller instead of the Kubernetes scheduler
-* Daemon pods respect taints and tolerations but [some tolerations are added to DaemonSet pods automatically](https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/#taints-and-tolerations)
-
-### Understand how resource limits can affect Pod scheduling
-* [Configure Default Memory Requests and Limits for a Namespace](https://kubernetes.io/docs/tasks/administer-cluster/manage-resources/memory-default-namespace/)
-* [Kube Scheduler](https://kubernetes.io/docs/concepts/scheduling/kube-scheduler/)
-* For every newly created pod or other unscheduled pods, kube-scheduler selects an optimal node for them to run on. However, every container in pods has different requirements for resources and every pod also has different requirements. Therefore, existing nodes need to be filtered according to the specific scheduling requirements.
-* In a cluster, Nodes that meet the scheduling requirements for a Pod are called feasible nodes. If none of the nodes are suitable, the pod remains unscheduled until the scheduler is able to place it.
-* kube-scheduler selects a node for the pod in a 2-step operation:
-  1. Filtering
-    * The filtering step finds the set of Nodes where it’s feasible to schedule the Pod. For example, the `PodFitsResources` filter checks whether a candidate Node has enough available resource to meet a Pod’s specific resource requests. After this step, the node list contains any suitable Nodes; often, there will be more than one. If the list is empty, that Pod isn’t (yet) schedulable
-  2. Scoring
-    * In the scoring step, the scheduler ranks the remaining nodes to choose the most suitable Pod placement. The scheduler assigns a score to each Node that survived filtering, basing this score on the active scoring rules.
-  * Finally, kube-scheduler assigns the Pod to the Node with the highest ranking. If there is more than one node with equal scores, kube-scheduler selects one of these at random.
-* `PodFitsResources`: Checks if the Node has free resources (eg, CPU and Memory) to meet the requirement of the Pod
-
-#### [Limit Ranges](https://kubernetes.io/docs/concepts/policy/limit-range/)
-* By default, containers run with unbounded compute resources on a Kubernetes cluster. With Resource quotas, cluster administrators can restrict the resource consumption and creation on a namespace basis
-* Limit Range is a policy to constrain resource by Pod or Container in a namespace
-* A limit range, defined by a LimitRange object, provides constraints that can:
-  * Enforce minimum and maximum compute resources usage per Pod or Container in a namespace.
-  * Enforce minimum and maximum storage request per PersistentVolumeClaim in a namespace.
-  * Enforce a ratio between request and limit for a resource in a namespace.
-  * Set default request/limit for compute resources in a namespace and automatically inject them to Containers at runtime.
-
-#### [Resource Quotas](https://kubernetes.io/docs/concepts/policy/resource-quotas/)
-* A resource quota, defined by a `ResourceQuota` object, provides constraints that limit aggregate resource consumption per namespace. It can limit the quantity of objects that can be created in a namespace by type, as well as the total amount of compute resources that may be consumed by resources in that project
-* If creating or updating a resource violates a quota constraint, the request will fail with HTTP status code 403 FORBIDDEN with a message explaining the constraint that would have been violated.
-* If quota is enabled in a namespace for compute resources like cpu and memory, users must specify requests or limits for those values; otherwise, the quota system may reject pod creation. Hint: Use the LimitRanger admission controller to force defaults for pods that make no compute resource requirements
-
-### Understand how to run multiple schedulers and how to configure Pods to use them
-* [Configure Multiple Schedulers](https://kubernetes.io/docs/tasks/administer-cluster/configure-multiple-schedulers/)
-
-#### Package the scheduler
-* Package your scheduler binary into a container image
-
-#### Define a Kubernetes Deployment for the scheduler
-* An important thing to note here is that the name of the scheduler specified as an argument to the scheduler command in the container spec should be unique. This is the name that is matched against the value of the optional spec.schedulerName on pods, to determine whether this scheduler is responsible for scheduling a particular pod
-* Note also that we created a dedicated service account my-scheduler and bind the cluster role system:kube-scheduler to it so that it can acquire the same privileges as kube-scheduler
-
-#### Run the second scheduler
-
-#### Specify scheduler for pods
-```
-kind: Pod
-spec:
-  schedulerName: my-scheduler
-  containers:
-  - name: ...
-```
-
-#### Verify pods were scheduler using the desired scheduler
-`kubectl get events`
-
-### Manually schedule a pod without a scheduler (aka Static Pods)
-* [Create Static Pods](https://kubernetes.io/docs/tasks/configure-pod-container/static-pod/)
-A mirror pod gets created on the Kube API server for each static pod. This makes them visible but they cannot be controlled from there
-
-1. SSH into node
-* ssh username@my-node1
-2. Choose directory to save yaml (example /etc/kubelet.d)
-```
-mkdir /etc/kubelet.d/
-cat <<EOF >/etc/kubelet.d/static-web.yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: static-web
-  labels:
-    role: myrole
-spec:
-  containers:
-    - name: web
-      image: nginx
-      ports:
-        - name: web
-          containerPort: 80
-          protocol: TCP
-EOF
-```
-3. Configure your kubelet on the node to use this directory by running it with `--pod-manifest-path=/etc/kubelet.d/` argument
-`KUBELET_ARGS="--cluster-dns=<DNS_EP> --cluster-domain=kube.local --pod-manifest-path=/etc/kubelet.d/"`
-
-4. Restart the kubelet
-`systemctl restart kubelet`
-
-* Observe static pod behavior
-`docker ps`
-
-### Display scheduler events
-* Via `kubectl describe`
-`kubectl describe pods <pod_name>`
-
-### Know how to configure the Kubernetes scheduler
-* [Configure the Kubernetes Scheduler](https://github.com/kelseyhightower/kubernetes-the-hard-way/blob/master/docs/08-bootstrapping-kubernetes-controllers.md#configure-the-kubernetes-scheduler)
-
-1. Download and install the Kubernetes Controller Binaries
-```
-wget -q --show-progress --https-only --timestamping \
-  "https://storage.googleapis.com/kubernetes-release/release/v1.15.3/bin/linux/amd64/kube-scheduler"
-
-{
-  chmod +x kube-scheduler
-  sudo mv kube-scheduler /usr/local/bin/
-}
-```
-
-2. Configure the Kubernetes Scheduler
-* Move the kube-scheduler kubeconfig into place
-`sudo mv kube-scheduler.kubeconfig /var/lib/kubernetes/`
-
-* Create the kube-scheduler.yaml configuration file:
-```
-cat <<EOF | sudo tee /etc/kubernetes/config/kube-scheduler.yaml
-apiVersion: kubescheduler.config.k8s.io/v1alpha1
-kind: KubeSchedulerConfiguration
-clientConnection:
-  kubeconfig: "/var/lib/kubernetes/kube-scheduler.kubeconfig"
-leaderElection:
-  leaderElect: true
-EOF
-```
-
-* Create the kube-scheduler.service systemd unit file
-```
-cat <<EOF | sudo tee /etc/systemd/system/kube-scheduler.service
-[Unit]
-Description=Kubernetes Scheduler
-Documentation=https://github.com/kubernetes/kubernetes
-
-[Service]
-ExecStart=/usr/local/bin/kube-scheduler \\
-  --config=/etc/kubernetes/config/kube-scheduler.yaml \\
-  --v=2
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-```
-
-3. Start the Controller Services
-```
-{
-  sudo systemctl daemon-reload
-  sudo systemctl enable kube-scheduler
-  sudo systemctl start kube-scheduler
-}
-```
-
-4. Verification
-`kubectl get componentstatuses --kubeconfig admin.kubeconfig`
 
 ## Core Concepts - 19%
 ### Understand the Kubernetes API primitives
@@ -2184,3 +1902,286 @@ way to do this is to run an interactive Pod
 
 #### Key Points
 * 
+
+## Scheduling - 5%
+### Use label selectors to schedule pods
+* [Assinging Pods to Nodes](https://kubernetes.io/docs/concepts/configuration/assign-pod-node/)
+* [Label-Selectors](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#label-selectors)
+  * The label selector is the core grouping primitive in Kubernetes
+
+* Using labels to filter pods
+```
+kubectl get pods -l environment=production,tier=frontend
+kubectl get pods -l 'environment in (production),tier in (frontend)'
+```
+
+#### [nodeSelector](https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#nodeselector) - simpliest recommended method
+1. Label Node
+  * For a [more secure labeling option](https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#node-isolation-restriction), add the prefix `node-restriction.kubernetes.io/` to the label key
+```
+kubectl get nodes
+kubectl label nodes <node_name> <label_key>=<label_value>
+```
+2. Verify node label
+```
+kubectl get nodes --show-labels
+kubectl describe node <node_name>
+```
+3. Add nodeSelector field to pod spec
+  * Create pod yaml to edit
+```
+kubectl run <pod_name> --image=<pod_image> -o yaml --dry-run > nodeSelector.yaml
+```
+  * Edit yaml and add the nodeSelector field under pod.spec
+```
+kind: Pod
+spec:
+  nodeSelector:
+    <label_key>: <label_value>
+  containers:
+  - name: ...
+```
+
+#### [Affinity and anti-affinity](https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#affinity-and-anti-affinity)
+More expressive and flexible way to affect scheduling
+##### nodeAffinity
+Node affinity is conceptually similar to `nodeSelector` – it allows you to constrain which nodes your pod is eligible to be scheduled on, based on labels on the node.
+1. Label Node
+2. Add affinity field and nodeAffinity sub-field to pod spec
+  * Create pod yaml to edit
+```
+kubectl run <pod_name> --image=<pod_image> -o yaml --dry-run > nodeAffinity.yaml
+```
+  * Edit yaml and add the affinity.nodeAffinity fields under pod.spec
+```
+kind: Pod
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: <node-label-key>
+            operator: In    # Valid operators are In, NotIn, Exists and DoesNotExist. 
+            values:
+            - <node-label-value>
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 1   # required field
+        preference:
+          matchExpressions:
+          - key: <another-node-label-key>
+            operator: In
+            values:
+            - <another-node-label-value>
+  containers:
+  - name: ...
+```
+##### podAffinity and podAntiAffinity
+Affects scheduling based on labels on **pods** that are already running on the node rather than based on labels on nodes
+1. Label Node
+2. Add affinity field and nodeAffinity sub-field to pod spec
+  * Create pod yaml to edit
+```
+kubectl run <pod_name> --image=<pod_image> -o yaml --dry-run > podAffinity.yaml
+```
+  * Edit yaml and add the affinity.podAffinity and/or affinity.podAntiAffinity fields under pod.spec
+```
+kind: Pod
+spec:
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: <label_key>
+            operator: In
+            values:
+            - <label_value>
+        topologyKey: failure-domain.beta.kubernetes.io/zone   # required field
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: <label_key>
+              operator: In
+              values:
+              - <label_value>
+          topologyKey: failure-domain.beta.kubernetes.io/zone   # required field
+  containers:
+  - name: ...
+```
+  * topologyKey
+    * In principle, the topologyKey can be any legal label-key
+    * Note: Pod anti-affinity requires nodes to be consistently labelled, i.e. every node in the cluster must have an appropriate label matching `topologyKey`. If some or all nodes are missing the specified `topologyKey` label, it can lead to unintended behavior.
+
+### Understand the role of Daemonsets
+* [DaemonSet](https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/)
+A DaemonSet ensures that all (or some) Nodes run a copy of a Pod. As nodes are added to the cluster, Pods are added to them. As nodes are removed from the cluster, those Pods are garbage collected. Deleting a DaemonSet will clean up the Pods it created.
+* Some typical uses of a DaemonSet are:
+  * running a cluster storage daemon, such as `glusterd`, `ceph`, on each node
+  * running a logs collection daemon on every node, such as `fluentd` or `filebeat`
+  * running a node monitoring daemon on every node, such as Prometheus, New Relic agent, Sysdig agent, etc
+
+* Required fields
+  * .spec.template
+    * This a pod template. It has exactly the same schema as a pod
+  * .spec.selector
+    * This field is a pod selector
+
+#### How Daemon Pods are Scheduled
+* A DaemonSet ensures that all eligible nodes run a copy of a Pod
+* DaemonSet pods are created and scheduled by the DaemonSet controller instead of the Kubernetes scheduler
+* Daemon pods respect taints and tolerations but [some tolerations are added to DaemonSet pods automatically](https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/#taints-and-tolerations)
+
+### Understand how resource limits can affect Pod scheduling
+* [Configure Default Memory Requests and Limits for a Namespace](https://kubernetes.io/docs/tasks/administer-cluster/manage-resources/memory-default-namespace/)
+* [Kube Scheduler](https://kubernetes.io/docs/concepts/scheduling/kube-scheduler/)
+* For every newly created pod or other unscheduled pods, kube-scheduler selects an optimal node for them to run on. However, every container in pods has different requirements for resources and every pod also has different requirements. Therefore, existing nodes need to be filtered according to the specific scheduling requirements.
+* In a cluster, Nodes that meet the scheduling requirements for a Pod are called feasible nodes. If none of the nodes are suitable, the pod remains unscheduled until the scheduler is able to place it.
+* kube-scheduler selects a node for the pod in a 2-step operation:
+  1. Filtering
+    * The filtering step finds the set of Nodes where it’s feasible to schedule the Pod. For example, the `PodFitsResources` filter checks whether a candidate Node has enough available resource to meet a Pod’s specific resource requests. After this step, the node list contains any suitable Nodes; often, there will be more than one. If the list is empty, that Pod isn’t (yet) schedulable
+  2. Scoring
+    * In the scoring step, the scheduler ranks the remaining nodes to choose the most suitable Pod placement. The scheduler assigns a score to each Node that survived filtering, basing this score on the active scoring rules.
+  * Finally, kube-scheduler assigns the Pod to the Node with the highest ranking. If there is more than one node with equal scores, kube-scheduler selects one of these at random.
+* `PodFitsResources`: Checks if the Node has free resources (eg, CPU and Memory) to meet the requirement of the Pod
+
+#### [Limit Ranges](https://kubernetes.io/docs/concepts/policy/limit-range/)
+* By default, containers run with unbounded compute resources on a Kubernetes cluster. With Resource quotas, cluster administrators can restrict the resource consumption and creation on a namespace basis
+* Limit Range is a policy to constrain resource by Pod or Container in a namespace
+* A limit range, defined by a LimitRange object, provides constraints that can:
+  * Enforce minimum and maximum compute resources usage per Pod or Container in a namespace.
+  * Enforce minimum and maximum storage request per PersistentVolumeClaim in a namespace.
+  * Enforce a ratio between request and limit for a resource in a namespace.
+  * Set default request/limit for compute resources in a namespace and automatically inject them to Containers at runtime.
+
+#### [Resource Quotas](https://kubernetes.io/docs/concepts/policy/resource-quotas/)
+* A resource quota, defined by a `ResourceQuota` object, provides constraints that limit aggregate resource consumption per namespace. It can limit the quantity of objects that can be created in a namespace by type, as well as the total amount of compute resources that may be consumed by resources in that project
+* If creating or updating a resource violates a quota constraint, the request will fail with HTTP status code 403 FORBIDDEN with a message explaining the constraint that would have been violated.
+* If quota is enabled in a namespace for compute resources like cpu and memory, users must specify requests or limits for those values; otherwise, the quota system may reject pod creation. Hint: Use the LimitRanger admission controller to force defaults for pods that make no compute resource requirements
+
+### Understand how to run multiple schedulers and how to configure Pods to use them
+* [Configure Multiple Schedulers](https://kubernetes.io/docs/tasks/administer-cluster/configure-multiple-schedulers/)
+
+#### Package the scheduler
+* Package your scheduler binary into a container image
+
+#### Define a Kubernetes Deployment for the scheduler
+* An important thing to note here is that the name of the scheduler specified as an argument to the scheduler command in the container spec should be unique. This is the name that is matched against the value of the optional spec.schedulerName on pods, to determine whether this scheduler is responsible for scheduling a particular pod
+* Note also that we created a dedicated service account my-scheduler and bind the cluster role system:kube-scheduler to it so that it can acquire the same privileges as kube-scheduler
+
+#### Run the second scheduler
+
+#### Specify scheduler for pods
+```
+kind: Pod
+spec:
+  schedulerName: my-scheduler
+  containers:
+  - name: ...
+```
+
+#### Verify pods were scheduler using the desired scheduler
+`kubectl get events`
+
+### Manually schedule a pod without a scheduler (aka Static Pods)
+* [Create Static Pods](https://kubernetes.io/docs/tasks/configure-pod-container/static-pod/)
+A mirror pod gets created on the Kube API server for each static pod. This makes them visible but they cannot be controlled from there
+
+1. SSH into node
+* ssh username@my-node1
+2. Choose directory to save yaml (example /etc/kubelet.d)
+```
+mkdir /etc/kubelet.d/
+cat <<EOF >/etc/kubelet.d/static-web.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: static-web
+  labels:
+    role: myrole
+spec:
+  containers:
+    - name: web
+      image: nginx
+      ports:
+        - name: web
+          containerPort: 80
+          protocol: TCP
+EOF
+```
+3. Configure your kubelet on the node to use this directory by running it with `--pod-manifest-path=/etc/kubelet.d/` argument
+`KUBELET_ARGS="--cluster-dns=<DNS_EP> --cluster-domain=kube.local --pod-manifest-path=/etc/kubelet.d/"`
+
+4. Restart the kubelet
+`systemctl restart kubelet`
+
+* Observe static pod behavior
+`docker ps`
+
+### Display scheduler events
+* Via `kubectl describe`
+`kubectl describe pods <pod_name>`
+
+### Know how to configure the Kubernetes scheduler
+* [Configure the Kubernetes Scheduler](https://github.com/kelseyhightower/kubernetes-the-hard-way/blob/master/docs/08-bootstrapping-kubernetes-controllers.md#configure-the-kubernetes-scheduler)
+
+1. Download and install the Kubernetes Controller Binaries
+```
+wget -q --show-progress --https-only --timestamping \
+  "https://storage.googleapis.com/kubernetes-release/release/v1.15.3/bin/linux/amd64/kube-scheduler"
+
+{
+  chmod +x kube-scheduler
+  sudo mv kube-scheduler /usr/local/bin/
+}
+```
+
+2. Configure the Kubernetes Scheduler
+* Move the kube-scheduler kubeconfig into place
+`sudo mv kube-scheduler.kubeconfig /var/lib/kubernetes/`
+
+* Create the kube-scheduler.yaml configuration file:
+```
+cat <<EOF | sudo tee /etc/kubernetes/config/kube-scheduler.yaml
+apiVersion: kubescheduler.config.k8s.io/v1alpha1
+kind: KubeSchedulerConfiguration
+clientConnection:
+  kubeconfig: "/var/lib/kubernetes/kube-scheduler.kubeconfig"
+leaderElection:
+  leaderElect: true
+EOF
+```
+
+* Create the kube-scheduler.service systemd unit file
+```
+cat <<EOF | sudo tee /etc/systemd/system/kube-scheduler.service
+[Unit]
+Description=Kubernetes Scheduler
+Documentation=https://github.com/kubernetes/kubernetes
+
+[Service]
+ExecStart=/usr/local/bin/kube-scheduler \\
+  --config=/etc/kubernetes/config/kube-scheduler.yaml \\
+  --v=2
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+```
+
+3. Start the Controller Services
+```
+{
+  sudo systemctl daemon-reload
+  sudo systemctl enable kube-scheduler
+  sudo systemctl start kube-scheduler
+}
+```
+
+4. Verification
+`kubectl get componentstatuses --kubeconfig admin.kubeconfig`
