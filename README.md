@@ -170,6 +170,10 @@
     * The service must be created before the client pods come into existence
   * DNS
     * Should almost always use DNS for service discovery
+    * if you have a Service called `my-service` in a Kubernetes Namespace `my-ns`, the control plane and the DNS Service acting together create a DNS record for `my-service.my-ns`
+    * Pods in the `my-ns` Namespace should be able to find it by simply doing a name lookup for my-service (`my-service.my-ns` would also work).
+    * Pods in other Namespaces must qualify the name as `my-service.my-ns`
+    * Kubernetes also supports DNS SRV (Service) records for named ports. If the `my-service.my-ns` Service has a port named `http` with the protocol set to TCP, you can do a DNS SRV query for `_http._tcp.my-service.my-ns` to discover the port number for `http`, as well as the IP address.
     * The DNS server watches the Kube API for new Services and creates a set of DNS records for each one
     * Kube DNS is the only way to access `ExternalName` Services
 * Configuring a service
@@ -359,14 +363,18 @@ spec:
     * Are created for named ports that are part of Services
       * `_my-port-name._my-port-protocol.my-svc.my-namespace.svc.cluster-domain.example` - for a regular service, this resolves to the port number and the domain name
 * Pods
+  * Any pods created by a Deployment or DaemonSet have the following DNS resolution available: `pod-ip-address.deployment-name.my-namespace.svc.cluster-domain.example.`
   * Pod's hostname and subdomain fields
     * The pod spec has an optional `hostname` field which can be used to specify its hostname. When specified, it takes precedence over the Pod's name to be the hostname of the pod
     * The pod spec also has an option `subdomain` field
-    * If pod hostname was `foo` and subdomain `bar`, its FQDN would be `foo.bar.my-namespace.svc.cluster-domain.example`
+    * If pod hostname was `foo` and subdomain `bar`, its FQDN would be `foo.bar.my-namespace.svc.cluster-domain.example`.
+    * If there exists a headless service in the same namespace as the pod and with the same name as the subdomain, the cluster's DNS Server also returns an A or AAAA record for the Pod's fully qualified hostname
+    * Note: Because A or AAAA records are not created for Pod names, hostname is required for the Pod's A or AAAA record to be created. A Pod with no hostname but with subdomain will only create the A or AAAA record for the headless service (`default-subdomain.my-namespace.svc.cluster-domain.example`), pointing to the Pod's IP address
 * Pod's DNS Policy
   * Can be set on a per-pod basis via the `dnsPolicy` field of a pod spec
   * `Default`: the pod inherits the name resolution config from the node it runs on
   * `ClusterFirst`: Any DNS query that does not match the configured cluster domain suffix is forwarded to the upstream nameserver inherited from the node
+    * Note: This is the default value if `dnsPolicy` is not specified
   * `ClusterFirstWithHostNet`: For pods running with hostNetwork
   * `None`: Allows a pod to ignore DNS settings from the Kube environment
 * Pod's DNS Config
@@ -497,71 +505,81 @@ kubeadm token create --print-join-command --certificate-key $CERT_KEY
 * Prereq
   * This tutorial assumes that a signer is setup to serve the certificates API. The Kubernetes controller manager provides a default implementation of a signer. To enable it, pass the `--cluster-signing-cert-file` and `--cluster-signing-key-file` parameters to the controller manager with paths to your Certificate Authority’s keypair.
   * You can configure an external signer such as [cert-manager](https://docs.cert-manager.io/en/latest/tasks/issuers/setup-ca.html), or you can use the built-in signer
+* Node authorizer
+  * Kubernetes uses a special-purpose authorization mode called Node Authorizer, that specifically authorizes API requests made by Kubelets. In order to be authorized by the Node Authorizer, Kubelets must use a credential that identifies them as being in the `system:nodes` group, with a username of `system:node:<nodeName>`. A certificate for each Kubernetes worker node that meets the Node Authorizer requirements must be created to add a node to this group
 * Trusting TLS in a cluster
   * You need to add the CA certificate bundle to the list of CA certificates that the TLS client or server trusts
   * You can distribute the CA certificate as a ConfigMap that your pods have access to use
-* Download and isntall CFSSL (Cloudflare's PKI and TLS toolkit)
-  * https://pkg.cfssl.org/R1.2/cfssl-bundle_linux-amd64
-1. Create a Certificate Signing Request (CSR) and private key
+* Certificates are created for the following components
+  * kube-api-server
+  * kube-controller-manager
+  * kube-scheduler
+  * kube-proxy
+  * kubelet - on each worker node
+  * kubernetes `admin` user
+  * The Kubernetes Controller Manager leverages a key pair to generate and sign service account tokens
+    * [More info](https://kubernetes.io/docs/admin/service-accounts-admin/)
+
+1. Create a Certificate Signing Request (CSR) and private key for each component listed above
+  * Download and isntall CFSSL (Cloudflare's PKI and TLS toolkit)
+    * https://pkg.cfssl.org/R1.2/cfssl-bundle_linux-amd64
   * `cfssl genkey` will generate a private key and a CSR
   * `cfssljson -bare` will take the output from `cfssl` and split it out into separate key, cert, and CSR files
-  * Generate a private key and CSR by running the following command
+  * The api-server needs all controller internal and external IP addresses as well as the kube dns search domains listed as SANs
+2. Generate [Kubernetes configuration files](https://kubernetes.io/docs/concepts/configuration/organize-cluster-access-kubeconfig/), also known as kubeconfigs, which enable Kubernetes clients to locate and authenticate to the Kubernetes API Servers
+  * Generate kubeconfig files for the `controller manager`, `kubelet`, `kube-proxy`, and `scheduler` clients and the `admin` user
+  * Each kubeconfig requires a Kubernetes API Server to connect to. To support high availability the IP address assigned to the external load balancer fronting the Kubernetes API Servers will be used
+  * When generating kubeconfig files for Kubelets the client certificate matching the Kubelet's node name must be used. This will ensure Kubelets are properly authorized by the Kubernetes Node Authorizer
 ```
-cat <<EOF | cfssl genkey - | cfssljson -bare server
-{
-  "hosts": [
-    "my-svc.my-namespace.svc.cluster.local",
-    "my-pod.my-namespace.pod.cluster.local",
-    "192.0.2.24",
-    "10.0.34.2"
-  ],
-  "CN": "my-pod.my-namespace.pod.cluster.local",
-  "key": {
-    "algo": "ecdsa",
-    "size": 256
-  }
-}
-EOF
-```
-  * Where `192.0.2.24` is the service’s cluster IP, `my-svc.my-namespace.svc.cluster.local` is the service’s DNS name, `10.0.34.2` is the pod’s IP and `my-pod.my-namespace.pod.cluster.local` is the pod’s DNS name.
-    * FOLLOWUP - How to find these DNS names
-  * This command generates two files; it generates `server.csr` containing the PEM encoded pkcs#10 certification request, and `server-key.pem` containing the PEM encoded key to the certificate that is still to be created
-2. Create a CSR object to send to the Kube API
-  * Generate a CSR yaml blob and send it to the apiserver by running:
-```
-cat <<EOF | kubectl apply -f -
-apiVersion: certificates.k8s.io/v1beta1
-kind: CertificateSigningRequest
-metadata:
-  name: my-svc.my-namespace
-spec:
-  request: $(cat server.csr | base64 | tr -d '\n')
-  usages:
-  - digital signature
-  - key encipherment
-  - server auth
-EOF
-```
-  * Notice that the `server.csr` file created in step 1 is base64 encoded and stashed in the `.spec.request` field. We are also requesting a certificate with the “digital signature”, “key encipherment”, and “server auth” key usages. We support all key usages and extended key usages listed [here](https://godoc.org/k8s.io/api/certificates/v1beta1#KeyUsage) so you can request client certificates and other certificates using this same API.
-  * The CSR should now be visible from the API in a Pending state. You can see it by running: `kubectl describe csr my-svc.my-namespace`
-* Get the CSR approved
-  * Approving the certificate signing request is either done by an automated approval process or on a one off basis by a cluster administrator
-3. Approving CSRs
-  * A Kubernetes administrator (with appropriate permissions) can manually approve (or deny) Certificate Signing Requests by using the `kubectl certificate approve <CSR_NAME>` and `kubectl certificate deny <CSR_NAME>` commands. However if you intend to make heavy usage of this API, you might consider writing an automated certificates controller.
-4. Download the cert and use it
-  * Once the CSR is signed and approved you should see the following
-```
-kubectl get csr
+for instance in worker-0 worker-1 worker-2; do
+  kubectl config set-cluster cka-practice \
+    --certificate-authority=ca.pem \
+    --embed-certs=true \
+    --server=https://${KUBERNETES_PUBLIC_ADDRESS}:6443 \
+    --kubeconfig=${instance}.kubeconfig
 
-NAME                  AGE       REQUESTOR               CONDITION
-my-svc.my-namespace   10m       yourname@example.com    Approved,Issued
+  kubectl config set-credentials system:node:${instance} \
+    --client-certificate=${instance}.pem \
+    --client-key=${instance}-key.pem \
+    --embed-certs=true \
+    --kubeconfig=${instance}.kubeconfig
+
+  kubectl config set-context default \
+    --cluster=cka-practice \
+    --user=system:node:${instance} \
+    --kubeconfig=${instance}.kubeconfig
+
+  kubectl config use-context default --kubeconfig=${instance}.kubeconfig
+done
 ```
-  * You can download the issued certificate and save it to a server.crt file by running the following
+  * Generate a kubeconfig file for the `kube-proxy` service
 ```
-kubectl get csr my-svc.my-namespace -o jsonpath='{.status.certificate}' \
-    | base64 --decode > server.crt
+{
+  kubectl config set-cluster cka-practice \
+    --certificate-authority=ca.pem \
+    --embed-certs=true \
+    --server=https://${KUBERNETES_PUBLIC_ADDRESS}:6443 \
+    --kubeconfig=kube-proxy.kubeconfig
+
+  kubectl config set-credentials system:kube-proxy \
+    --client-certificate=kube-proxy.pem \
+    --client-key=kube-proxy-key.pem \
+    --embed-certs=true \
+    --kubeconfig=kube-proxy.kubeconfig
+
+  kubectl config set-context default \
+    --cluster=cka-practice \
+    --user=system:kube-proxy \
+    --kubeconfig=kube-proxy.kubeconfig
+
+  kubectl config use-context default --kubeconfig=kube-proxy.kubeconfig
+}
 ```
-  * Now you can use `server.crt` and `server-key.pem` as the keypair to start your HTTPS server
+  * And the same for the rest of the services
+  * Copy the appropriate `kubelet` and `kube-proxy` kubeconfig files to each worker instance
+    * each worker gets the same proxy kubeconfig plus its own kubelet one
+  * Copy the appropriate `kube-controller-manager` and `kube-scheduler` kubeconfig files to each controller instance
+    * each controller gets the same kubeconfigs for each main componenet plus the admin user
 
 ### Configure a Highly-Available Kubernetes cluster
 * [HA Cluster using kubeadm](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/high-availability/)
@@ -577,8 +595,36 @@ kubectl get csr my-svc.my-namespace -o jsonpath='{.status.certificate}' \
     * `nc -v LOAD_BALANCER_IP PORT`
     * Connection refused error is expected since apiserver isn't running yet
   3. Add remaining control plane nodes to LB target group
-* Stacked control plane and etcd nodes
-  1. Initialize the control plane
+    * Stacked control plane and etcd nodes
+  4. Bootstrap etcd
+    * Log into each controller
+    * Download and install the etcd binaries
+      `wget -q --show-progress --https-only --timestamping "https://github.com/etcd-io/etcd/releases/download/v3.4.10/etcd-v3.4.10-linux-amd64.tar.gz"`
+    * extract and install
+    ```
+    {
+      tar -xvf etcd-v3.4.10-linux-amd64.tar.gz
+      sudo mv etcd-v3.4.10-linux-amd64/etcd* /usr/local/bin/
+    }
+    ```
+    * configure etcd
+    ```
+    {
+      sudo mkdir -p /etc/etcd /var/lib/etcd
+      sudo chmod 700 /var/lib/etcd
+      sudo cp ca.pem kubernetes-key.pem kubernetes.pem /etc/etcd/
+    }
+    ```
+    * Create service for etcd and start it
+    * verify
+    ```
+sudo ETCDCTL_API=3 etcdctl member list \
+  --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/etcd/ca.pem \
+  --cert=/etc/etcd/kubernetes.pem \
+  --key=/etc/etcd/kubernetes-key.pem
+    ```
+  5. Initialize the control plane
     * `sudo kubeadm init --control-plane-endpoint "LOAD_BALANCER_DNS:LOAD_BALANCER_PORT" --upload-certs`
 ```
 # Create a certificate key for use in join command
@@ -602,10 +648,11 @@ kubeadm token create --print-join-command --certificate-key $CERT_KEY >> /etc/ku
 * Download the server binaries
 ```
 wget -q --show-progress --https-only --timestamping \
-  "https://dl.k8s.io/v1.17.0/kubernetes-server-linux-amd64.tar.gz"
+  "https://storage.googleapis.com/kubernetes-release/release/v1.18.6/bin/linux/amd64/kube-apiserver" \
+  "https://storage.googleapis.com/kubernetes-release/release/v1.18.6/bin/linux/amd64/kube-controller-manager" \
+  "https://storage.googleapis.com/kubernetes-release/release/v1.18.6/bin/linux/amd64/kube-scheduler" \
+  "https://storage.googleapis.com/kubernetes-release/release/v1.18.6/bin/linux/amd64/kubectl"
 ```
-* Unpack them
-`tar -xf kubernetes-server-linux-amd64.tar.gz`
 * Install the Kube binaries
 ```
 {
@@ -613,6 +660,8 @@ wget -q --show-progress --https-only --timestamping \
   sudo mv kube-apiserver kube-controller-manager kube-scheduler kubectl /usr/local/bin/
 }
 ```
+* After configuring them, check component status
+`kubectl get componentstatuses --kubeconfig admin.kubeconfig`
 
 ### Provision underlying infrastructure to deploy a Kubernetes cluster
 * [Provisioning Compute Resources](https://github.com/kelseyhightower/kubernetes-the-hard-way/blob/master/docs/03-compute-resources.md)
@@ -636,6 +685,8 @@ wget -q --show-progress --https-only --timestamping \
   * GCE
   * Flannel
   * Calico
+* Create routes to pod CIDR networks on each node
+* Configure DNS plugin and pod
 
 ### Choose your Kubernetes infrastructure configuration
 * [Prod Environment Options](https://kubernetes.io/docs/setup/#production-environment)
@@ -1170,6 +1221,25 @@ securityContext:
   * The kube-apiserver needs the `--encryption-provider-config` flag set with `aescbc` or `ksm`
   * Must recreate secrets after doing the above steps
   * More info on [encrypting data at rest](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/)
+  * Generating Data encryption key and config
+    * Kubernetes stores a variety of data including cluster state, application configurations, and secrets. Kubernetes supports the ability to encrypt cluster data at rest
+    * Generate an encryption key and an [encryption config](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/#understanding-the-encryption-at-rest-configuration) suitable for encrypting Kubernetes Secrets
+    * Copy the `encryption-config.yaml` encryption config file to each controller instance
+```
+cat > encryption-config.yaml <<EOF
+kind: EncryptionConfig
+apiVersion: v1
+resources:
+  - resources:
+      - secrets
+    providers:
+      - aescbc:
+          keys:
+            - name: key1
+              secret: ${ENCRYPTION_KEY}
+      - identity: {}
+EOF
+```
 * To use a Secret, a Pod needs to reference the secret. It can be used with a Pod in two ways:
   * As files in a volume mounted on one or more of its containers
   * By the kubelet when pulling images for the pod
