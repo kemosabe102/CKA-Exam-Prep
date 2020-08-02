@@ -618,11 +618,11 @@ done
     * Create service for etcd and start it
     * verify
     ```
-sudo ETCDCTL_API=3 etcdctl member list \
-  --endpoints=https://127.0.0.1:2379 \
-  --cacert=/etc/etcd/ca.pem \
-  --cert=/etc/etcd/kubernetes.pem \
-  --key=/etc/etcd/kubernetes-key.pem
+    sudo ETCDCTL_API=3 etcdctl member list \
+      --endpoints=https://127.0.0.1:2379 \
+      --cacert=/etc/etcd/ca.pem \
+      --cert=/etc/etcd/kubernetes.pem \
+      --key=/etc/etcd/kubernetes-key.pem
     ```
   5. Initialize the control plane
     * `sudo kubeadm init --control-plane-endpoint "LOAD_BALANCER_DNS:LOAD_BALANCER_PORT" --upload-certs`
