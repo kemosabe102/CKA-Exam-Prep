@@ -842,7 +842,8 @@ kubectl uncordon <cp-node-name>   # uncordon the control-plane node
     * `RoleBinding` may also reference a `ClusterRole` and will give namespace permissions to that role
     * Cannot modify `Role` or `ClusterRole` a binding onject refers to
       * Must delete existing binding first then recreate
-  * `kubectl auth reconcile` creates or updates a manifest file containing RBAC objects and handles deleting and recreating binding objects if required to change the role the refer to
+    * After you create a binding, you cannot change the Role or ClusterRole that it refers to. If you try to change a binding's `roleRef`, you get a validation error. If you do want to change the `roleRef` for a binding, you need to remove the binding object and create a replacement.
+      * The `kubectl auth reconcile` command-line utility creates or updates a manifest file containing RBAC objects, and handles deleting and recreating binding objects if required to change the role they refer to
   * Aggregated ClusterRoles
     * `ClusterRole` can be created by combining other ClusterRoles using an `aggregationRule`
     * The permissions of aggregated ClusterRoles are controller-managed and filled in by joining rules of any ClusterRole that matches the provided label selector
